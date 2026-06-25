@@ -12,7 +12,8 @@ module.exports = client;
 
 client.slashCommands = new Collection();
 
-const {token} = require("../config.json");
+const config = require("../config.json");
+const token = process.env.DISCORD_TOKEN || config.token;
 client.login(token);
 
 
