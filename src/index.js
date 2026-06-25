@@ -18,7 +18,7 @@ client.login(token);
 
 
 const evento = require("./handler/Events");
-const { lg, us } = require("./databases");
+const { lg } = require("./databases");
 
 evento.run(client);
 require("./handler/index")(client);
