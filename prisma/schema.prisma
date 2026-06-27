@@ -1,0 +1,49 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Settings {
+  id        Int      @id @default(autoincrement())
+  botId     String   @unique @map("bot_id")
+  token     String   @default("")
+  message   String   @default("")
+  interval  Int      @default(12)
+  categories String[] @default([])
+  modes     String[] @default([])
+  isRunning Boolean  @default(false) @map("is_running")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}
+
+model Log {
+  id        Int      @id @default(autoincrement())
+  botId     String   @map("bot_id")
+  type      String
+  message   String
+  server    String   @default("")
+  channel   String   @default("")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([botId, createdAt])
+  @@map("logs")
+}
+
+model Stats {
+  id                Int      @id @default(autoincrement())
+  botId             String   @unique @map("bot_id")
+  executions        Int      @default(0)
+  serversProcessed  Int      @default(0) @map("servers_processed")
+  messagesProcessed Int      @default(0) @map("messages_processed")
+  buttonsClicked    Int      @default(0) @map("buttons_clicked")
+  messagesSent      Int      @default(0) @map("messages_sent")
+  errors            Int      @default(0)
+  lastExecution     DateTime? @map("last_execution")
+
+  @@map("stats")
+}
