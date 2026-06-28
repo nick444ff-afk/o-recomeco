@@ -3,7 +3,6 @@ import { startBot, stopBot, isBotRunning } from '../automation/discordBot';
 import { getAndClearLogs } from '../services/logService';
 import { getStats, resetStats as resetStatsService } from '../services/statsService';
 import { getSettings, saveSettings } from '../services/settingsService';
-import { addLog } from '../services/logService';
 
 const router = Router();
 
@@ -101,8 +100,6 @@ router.post('/save_config', async (req: Request, res: Response) => {
       modes: modos || [],
     });
 
-    addLog(bot_id, { type: 'success', message: 'Configuração salva com sucesso.' });
-
     res.json({ status: 'success', message: 'Configuração salva com sucesso.', config });
   } catch (err: any) {
     res.status(500).json({ status: 'error', message: err.message });
@@ -128,7 +125,6 @@ router.get('/settings/:botId', async (req: Request, res: Response) => {
 router.post('/reset_stats/:botId', (req: Request, res: Response) => {
   const { botId } = req.params;
   resetStatsService(botId);
-  addLog(botId, { type: 'warn', message: 'Estatísticas resetadas.' });
   res.json({ status: 'success', message: 'Stats resetados.' });
 });
 

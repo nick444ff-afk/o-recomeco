@@ -50,21 +50,8 @@ function App() {
 
   // Add log
   const addLog = useCallback((msg: string, tipo: string) => {
-    // Se a mensagem já contém timestamp [HH:MM:SS], não adicionamos outro
-    if (msg.startsWith('[')) {
-      setLogs(prev => {
-        const next = [...prev, { time: '', message: msg, type: tipo }];
-        if (next.length > 200) next.shift();
-        return next;
-      });
-      return;
-    }
-
-    const now = new Date();
-    const time = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-    
     setLogs(prev => {
-      const next = [...prev, { time: `[${time}] `, message: msg, type: tipo }];
+      const next = [...prev, { time: '', message: msg, type: tipo }];
       if (next.length > 200) next.shift();
       return next;
     });
