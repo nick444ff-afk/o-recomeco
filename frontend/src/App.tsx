@@ -552,7 +552,7 @@ input:focus, textarea:focus, select:focus { border-color: rgba(34,211,238,0.4); 
 .log-time { color: #4b5563; margin-right: 6px; }
 .log-info { color: #22d3ee; }
 .log-success { color: #22c55e; }
-.log-warn { color: #facc15; }
+	.log-warn { color: #facc15; font-weight: 600; }
 .log-error { color: #f87171; }
 .clear-logs-btn {
   margin-top: 12px; width: 100%; padding: 12px; border-radius: 12px;

@@ -145,10 +145,7 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
     const guilds = client.guilds.cache;
     for (const [, guild] of guilds) {
       if (!instance.isRunning) break;
-      
       const guildName = guild.name || 'Servidor';
-      addLog(botId, { type: 'success', message: `Servidor encontrado: ${guildName}` });
-
       let cliquesNoServidor = 0;
 
       for (const modo of config.modes) {
@@ -200,7 +197,7 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
                             incrementStat(botId, 'buttonsClicked');
                             addLog(botId, { 
                               type: 'success', 
-                              message: `Clique: ${button.label || 'Botão'} (${button.customId}) em ${guildName}` 
+                              message: `Clique: "${channel.name}" em "${guildName}"` 
                             });
                             await sleep(1500);
                             foundAndClicked = true;
@@ -220,7 +217,7 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
                 try {
                   await (channel as any).send(config.message);
                   incrementStat(botId, 'messagesSent');
-                  addLog(botId, { type: 'success', message: `Mensagem enviada em ${guildName}` });
+                  addLog(botId, { type: 'warn', message: `Mensagem enviada em Servidor "${guildName}"` });
                 } catch (e) {}
               }
             } catch (e: any) {
@@ -258,7 +255,7 @@ async function handleMatchInteractions(botId: string, msg: any, config: BotConfi
         await channel.send(config.message);
         sentSet.add(channel.id);
         incrementStat(botId, 'messagesSent');
-        addLog(botId, { type: 'success', message: `Mensagem enviada em ${guildName} (#${channel.name})` });
+        addLog(botId, { type: 'warn', message: `Mensagem enviada em Servidor "${guildName}"` });
 
         if (!cancelTimers.has(channel.id)) {
           const timer = setTimeout(async () => {
@@ -270,7 +267,6 @@ async function handleMatchInteractions(botId: string, msg: any, config: BotConfi
                   for (const button of row.components) {
                     if ((button.label || '').toLowerCase().includes('cancelar') || (button.customId || '').toLowerCase().includes('cancelar')) {
                       await msgToCancel.clickButton(button.customId);
-                      addLog(botId, { type: 'warn', message: `Auto-cancelamento em ${guildName}` });
                       break;
                     }
                   }
@@ -297,43 +293,13 @@ async function handleMatchInteractions(botId: string, msg: any, config: BotConfi
         try {
           await msg.clickButton(button.customId);
           incrementStat(botId, 'buttonsClicked');
-          addLog(botId, { type: 'success', message: `Clique: ${button.label || 'Botão'} em ${guildName}` });
+          addLog(botId, { type: 'success', message: `Clique: "${channel.name}" em "${guildName}"` });
         } catch (e: any) {
           addLog(botId, { type: 'error', message: `Erro no clique (${guildName}): ${e.message}` });
         }
       }
     }
   }
-}
-
-async function monitorMatchChannels(botId: string, client: any, config: BotConfig) {
-  try {
-    const guilds = client.guilds.cache;
-    for (const [, guild] of guilds) {
-      const channels = guild.channels.cache.filter((c: any) => {
-        const name = c.name.toLowerCase();
-        return ['aguardando', 'partida', 'fila', 'aguardado', 'aguardo', 'jogando'].some(kw => name.includes(kw));
-      });
-
-      for (const [, channel] of channels) {
-        try {
-          const msgs = await (channel as any).messages.fetch({ limit: 5 });
-          for (const [, msg] of msgs) {
-            handleMatchInteractions(botId, msg, config);
-          }
-          if ((channel as any).threads) {
-            const threads = await (channel as any).threads.fetchActive();
-            for (const [, thread] of threads.threads) {
-              const tMsgs = await thread.messages.fetch({ limit: 5 });
-              for (const [, tMsg] of tMsgs) {
-                handleMatchInteractions(botId, tMsg, config);
-              }
-            }
-          }
-        } catch (e) {}
-      }
-    }
-  } catch (e) {}
 }
 
 function sleep(ms: number) {
