@@ -155,28 +155,26 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
       let cliquesNoServidor = 0;
 
       for (const modo of config.modes) {
-        if (!instance.isRunning || cliquesNoServidor >= 5) break;
+        if (!instance.isRunning) break;
         const formatSearch = modo.replace('v', 'x').toLowerCase();
 
         for (const categoria of config.categories) {
-          if (!instance.isRunning || cliquesNoServidor >= 5) break;
+          if (!instance.isRunning) break;
 
-          // Otimização: Usar cache diretamente sem fetch
           const canais = guild.channels.cache.filter((c: any) => {
-            if (c.type !== 'GUILD_TEXT') return false;
+            if (c.type !== 'GUILD_TEXT' && c.type !== 'GUILD_NEWS') return false;
             const nome = c.name.toLowerCase();
             return nome.includes(formatSearch) && nome.includes(categoria.toLowerCase());
           });
 
           for (const [, channel] of canais) {
-            if (!instance.isRunning || cliquesNoServidor >= 5) break;
+            if (!instance.isRunning) break;
 
             try {
-              // Otimização: Reduzido limit de 10 para 3, pois só importam as mensagens mais recentes
               const msgs = await (channel as any).messages.fetch({ limit: 3 });
               
               for (const [, msg] of msgs) {
-                if (!instance.isRunning || cliquesNoServidor >= 5) break;
+                if (!instance.isRunning) break;
                 if (!msg.components?.length) continue;
 
                 const categoryData = (BUTTON_TREE as any)[categoria];
@@ -206,10 +204,8 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
 
                         if (label.includes(option.toLowerCase()) || customId.includes(option.toLowerCase())) {
                           try {
-                            // Otimização: Não aguardar o clique para registrar o log e incrementar status
-                            currentMsg.clickButton(button.customId).catch((e: any) => {
-                               addLog(botId, { type: 'error', message: `Erro no clique: ${e.message}` });
-                            });
+                            // Real Log: Registrar o log apenas se o clique for bem-sucedido
+                            await currentMsg.clickButton(button.customId);
                             
                             cliquesNoServidor++;
                             incrementStat(botId, 'buttonsClicked');
@@ -218,12 +214,14 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
                               message: `Clique: "${channel.name}" em "${guildName}"` 
                             });
                             
-                            // Otimização: Reduzido delay de 1500ms para 300ms (apenas o mínimo para evitar rate limit)
                             await sleep(300);
                             foundAndClicked = true;
                             break;
                           } catch (e: any) {
-                            addLog(botId, { type: 'error', message: `Erro no clique: ${e.message}` });
+                            // Silencioso para não poluir logs com erros de botões expirados, mas loga erro real se necessário
+                            if (!e.message.includes('Unknown Message') && !e.message.includes('Interaction failed')) {
+                               addLog(botId, { type: 'error', message: `Erro no clique (${guildName}): ${e.message}` });
+                            }
                           }
                         }
                       }
@@ -233,12 +231,13 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
                 }
               }
 
-              if (config.message && config.message.trim() !== '' && cliquesNoServidor < 5) {
+              if (config.message && config.message.trim() !== '') {
                 try {
-                  // Otimização: Não aguardar o envio da mensagem
-                  (channel as any).send(config.message).catch(()=>{});
-                  incrementStat(botId, 'messagesSent');
-                  addLog(botId, { type: 'warn', message: `Mensagem enviada em Servidor "${guildName}"` });
+                  // Real Log: Aguardar o envio ou usar .then para confirmar o log real
+                  (channel as any).send(config.message).then(() => {
+                    incrementStat(botId, 'messagesSent');
+                    addLog(botId, { type: 'warn', message: `Mensagem enviada em "${channel.name}" de "${guildName}"` });
+                  }).catch(() => {});
                 } catch (e) {}
               }
             } catch (e: any) {
@@ -279,11 +278,12 @@ async function handleMatchInteractions(botId: string, msg: any, config: BotConfi
 
     if (!sentSet.has(channel.id)) {
       try {
-        // Otimização: Enviar mensagem sem bloquear
-        channel.send(config.message).catch(()=>{});
-        sentSet.add(channel.id);
-        incrementStat(botId, 'messagesSent');
-        addLog(botId, { type: 'warn', message: `Mensagem enviada em Servidor "${guildName}"` });
+        // Real Log: Confirmar envio antes de logar
+        channel.send(config.message).then(() => {
+          sentSet.add(channel.id);
+          incrementStat(botId, 'messagesSent');
+          addLog(botId, { type: 'warn', message: `Mensagem enviada em "${channel.name}" de "${guildName}"` });
+        }).catch(() => {});
 
         if (!cancelTimers.has(channel.id)) {
           const timer = setTimeout(async () => {
@@ -321,14 +321,14 @@ async function handleMatchInteractions(botId: string, msg: any, config: BotConfi
         if (forbidden.some(f => label.includes(f) || customId.includes(f))) continue;
 
         try {
-          // Otimização: Clicar sem bloquear
-          msg.clickButton(button.customId).catch((e: any) => {
-             addLog(botId, { type: 'error', message: `Erro no clique (${guildName}): ${e.message}` });
-          });
+          // Real Log: Confirmar clique antes de logar
+          await msg.clickButton(button.customId);
           incrementStat(botId, 'buttonsClicked');
           addLog(botId, { type: 'success', message: `Clique: "${channel.name}" em "${guildName}"` });
         } catch (e: any) {
-          addLog(botId, { type: 'error', message: `Erro no clique (${guildName}): ${e.message}` });
+          if (!e.message.includes('Unknown Message') && !e.message.includes('Interaction failed')) {
+            addLog(botId, { type: 'error', message: `Erro no clique (${guildName}): ${e.message}` });
+          }
         }
       }
     }
