@@ -83,7 +83,7 @@ router.get('/logs/:botId', (req: Request, res: Response) => {
 // ═══════════════════════════════════════════════════════════════
 router.post('/save_config', async (req: Request, res: Response) => {
   try {
-    const { bot_id, tokens, categories, mensagem, modos } = req.body;
+    const { bot_id, tokens, categories, mensagem, modos, interval } = req.body;
 
     if (!bot_id) {
       return res.status(400).json({ status: 'error', message: 'bot_id é obrigatório' });
@@ -98,6 +98,7 @@ router.post('/save_config', async (req: Request, res: Response) => {
       message: mensagem || '',
       categories: categories || [],
       modes: modos || [],
+      interval: interval !== undefined ? parseInt(interval, 10) : 12,
     });
 
     res.json({ status: 'success', message: 'Configuração salva com sucesso.', config });

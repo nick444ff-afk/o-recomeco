@@ -48,16 +48,20 @@ function App() {
     toastTimeoutRef.current = setTimeout(() => setToastVisible(false), 2500);
   }, []);
 
-  // Add log
+  // Add log (with deduplication to prevent duplicate log entries)
   const addLog = useCallback((msg: string, tipo: string) => {
     setLogs(prev => {
+      // Avoid adding duplicate logs if the last log is identical
+      if (prev.length > 0 && prev[prev.length - 1].message === msg && prev[prev.length - 1].type === tipo) {
+        return prev;
+      }
       const next = [...prev, { time: '', message: msg, type: tipo }];
       if (next.length > 200) next.shift();
       return next;
     });
   }, []);
 
-  // Verificar conexão
+  // Verificar conexão (reduced from 5000ms to 10000ms, connection is stable)
   useEffect(() => {
     const check = async () => {
       try {
@@ -69,11 +73,11 @@ function App() {
       }
     };
     check();
-    const interval = setInterval(check, 5000);
+    const interval = setInterval(check, 10000);
     return () => clearInterval(interval);
   }, []);
 
-  // Atualizar status do bot
+  // Atualizar status do bot (reduced from 3000ms to 5000ms to minimize re-renders)
   useEffect(() => {
     const check = async () => {
       try {
@@ -81,11 +85,20 @@ function App() {
         const data = res.data;
         setBotLigado(data.is_running);
         if (data.stats) {
-          setStats({
-            entradas: data.stats.entradas || 0,
-            na_fila: data.stats.na_fila || 0,
-            partidas: data.stats.partidas || 0,
-            dms: data.stats.dms || 0,
+          setStats(prev => {
+            // Only update if stats actually changed to prevent unnecessary re-renders
+            if (prev.entradas === data.stats.entradas &&
+                prev.na_fila === data.stats.na_fila &&
+                prev.partidas === data.stats.partidas &&
+                prev.dms === data.stats.dms) {
+              return prev;
+            }
+            return {
+              entradas: data.stats.entradas || 0,
+              na_fila: data.stats.na_fila || 0,
+              partidas: data.stats.partidas || 0,
+              dms: data.stats.dms || 0,
+            };
           });
         }
       } catch {
@@ -93,11 +106,11 @@ function App() {
       }
     };
     check();
-    const interval = setInterval(check, 3000);
+    const interval = setInterval(check, 5000);
     return () => clearInterval(interval);
   }, [botAtivo]);
 
-  // Fetch logs
+  // Fetch logs (reduced from 1000ms to 2000ms for less churn)
   useEffect(() => {
     const fetch = async () => {
       try {
@@ -111,7 +124,7 @@ function App() {
         // silencioso
       }
     };
-    const interval = setInterval(fetch, 1000);
+    const interval = setInterval(fetch, 2000);
     return () => clearInterval(interval);
   }, [botAtivo, addLog]);
 
@@ -141,14 +154,63 @@ function App() {
     }
   }, [logs]);
 
+  // Initial load
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await axios.get(`${API_URL}/settings/${botAtivo}`);
+        const config = res.data;
+        if (config) {
+          if (tokensRef.current) tokensRef.current.value = config.token || '';
+          if (mensagemRef.current) mensagemRef.current.value = config.message || '';
+          if (catMobileRef.current) catMobileRef.current.checked = config.categories?.includes('Mobile');
+          if (catEmuladorRef.current) catEmuladorRef.current.checked = config.categories?.includes('Emulador');
+          if (catMistoRef.current) catMistoRef.current.checked = config.categories?.includes('Misto');
+          if (catTaticoRef.current) catTaticoRef.current.checked = config.categories?.includes('Tático');
+          if (modo1x1Ref.current) modo1x1Ref.current.checked = config.modos?.includes('1x1');
+          if (modo2x2Ref.current) modo2x2Ref.current.checked = config.modos?.includes('2x2');
+          if (modo3x3Ref.current) modo3x3Ref.current.checked = config.modos?.includes('3x3');
+          if (modo4x4Ref.current) modo4x4Ref.current.checked = config.modos?.includes('4x4');
+          
+          const intervalInput = document.getElementById('interval-input') as HTMLInputElement;
+          if (intervalInput) intervalInput.value = config.interval?.toString() || '12';
+        }
+      } catch (e) {}
+    };
+    load();
+  }, []);
+
   // Mudar bot
-  const mudarBot = (bot: string) => {
+  const mudarBot = useCallback(async (bot: string) => {
     if (bot === botAtivo) return;
     setBotAtivo(bot);
     setUptimeSeconds(0);
     addLog(`Instância trocada para ${bot}.`, 'info');
     showToast(`Trocado para ${bot}`, 'info');
-  };
+
+    // Carregar configurações do bot selecionado
+    try {
+      const res = await axios.get(`${API_URL}/settings/${bot}`);
+      const config = res.data;
+      if (config) {
+        if (tokensRef.current) tokensRef.current.value = config.token || '';
+        if (mensagemRef.current) mensagemRef.current.value = config.message || '';
+        if (catMobileRef.current) catMobileRef.current.checked = config.categories?.includes('Mobile');
+        if (catEmuladorRef.current) catEmuladorRef.current.checked = config.categories?.includes('Emulador');
+        if (catMistoRef.current) catMistoRef.current.checked = config.categories?.includes('Misto');
+        if (catTaticoRef.current) catTaticoRef.current.checked = config.categories?.includes('Tático');
+        if (modo1x1Ref.current) modo1x1Ref.current.checked = config.modos?.includes('1x1');
+        if (modo2x2Ref.current) modo2x2Ref.current.checked = config.modos?.includes('2x2');
+        if (modo3x3Ref.current) modo3x3Ref.current.checked = config.modos?.includes('3x3');
+        if (modo4x4Ref.current) modo4x4Ref.current.checked = config.modos?.includes('4x4');
+        
+        const intervalInput = document.getElementById('interval-input') as HTMLInputElement;
+        if (intervalInput) intervalInput.value = config.interval?.toString() || '12';
+      }
+    } catch (e) {
+      console.error('Erro ao carregar configurações:', e);
+    }
+  }, [botAtivo, addLog, showToast]);
 
   // Toggle bot
   const toggleBot = async () => {
@@ -241,12 +303,16 @@ function App() {
         return;
       }
 
+      const intervalInput = document.getElementById('interval-input') as HTMLInputElement;
+      const interval = intervalInput ? parseInt(intervalInput.value, 10) : 12;
+
       const config = {
         bot_id: botAtivo,
         tokens,
         categories: categorias,
         mensagem,
         modos,
+        interval,
       };
 
       const res = await axios.post(`${API_URL}/save_config`, config);
@@ -282,9 +348,12 @@ function App() {
     return `${pad(h)}:${pad(m)}:${pad(s)}`;
   };
 
+  // Memoize appStyles to prevent inline style recreation on every render
+  const memoizedStyles = React.useMemo(() => appStyles, []);
+
   return (
     <div className="systemx-app">
-      <style>{appStyles}</style>
+      <style>{memoizedStyles}</style>
 
       <div className="container">
         {/* HEADER */}
@@ -307,6 +376,7 @@ function App() {
           <div className="bot-tabs">
             <div className={botAtivo === 'BOT1' ? 'active' : ''} onClick={() => mudarBot('BOT1')}>BOT1</div>
             <div className={botAtivo === 'BOT2' ? 'active' : ''} onClick={() => mudarBot('BOT2')}>BOT2</div>
+            <div className={botAtivo === 'BOT3' ? 'active' : ''} onClick={() => mudarBot('BOT3')}>BOT3</div>
           </div>
 
           <p className="instancia-text">INSTÂNCIA ATIVA: {botAtivo}</p>
@@ -407,6 +477,9 @@ function App() {
 
           <label>Mensagem</label>
           <input type="text" ref={mensagemRef} placeholder="Digite a mensagem" />
+
+          <label>Intervalo (segundos)</label>
+          <input type="number" defaultValue={12} min={2} max={60} id="interval-input" />
 
           <button className="save-btn" onClick={salvarConfiguracao} disabled={isSaving}>
             {isSaving ? 'SALVANDO...' : 'SALVAR CONFIGURAÇÃO'}
@@ -552,7 +625,7 @@ input:focus, textarea:focus, select:focus { border-color: rgba(34,211,238,0.4); 
 .log-time { color: #4b5563; margin-right: 6px; }
 .log-info { color: #22d3ee; }
 .log-success { color: #22c55e; }
-	.log-warn { color: #facc15; font-weight: 600; }
+.log-warn { color: #facc15; font-weight: 600; }
 .log-error { color: #f87171; }
 .clear-logs-btn {
   margin-top: 12px; width: 100%; padding: 12px; border-radius: 12px;

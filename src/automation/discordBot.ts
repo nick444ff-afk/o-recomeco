@@ -143,10 +143,8 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
     const client = instance.client;
 
     // Otimização: Executar atualizações de status em paralelo sem bloquear o loop
-    Promise.all([
-      incrementStat(botId, 'executions'),
-      setStat(botId, 'lastExecution', new Date())
-    ]).catch(() => {});
+    incrementStat(botId, 'executions');
+    setStat(botId, 'lastExecution', new Date());
 
     const guilds = client.guilds.cache;
     
@@ -214,7 +212,7 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
                             });
                             
                             cliquesNoServidor++;
-                            incrementStat(botId, 'buttonsClicked').catch(()=>{});
+                            incrementStat(botId, 'buttonsClicked');
                             addLog(botId, { 
                               type: 'success', 
                               message: `Clique: "${channel.name}" em "${guildName}"` 
@@ -239,7 +237,7 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
                 try {
                   // Otimização: Não aguardar o envio da mensagem
                   (channel as any).send(config.message).catch(()=>{});
-                  incrementStat(botId, 'messagesSent').catch(()=>{});
+                  incrementStat(botId, 'messagesSent');
                   addLog(botId, { type: 'warn', message: `Mensagem enviada em Servidor "${guildName}"` });
                 } catch (e) {}
               }
@@ -284,7 +282,7 @@ async function handleMatchInteractions(botId: string, msg: any, config: BotConfi
         // Otimização: Enviar mensagem sem bloquear
         channel.send(config.message).catch(()=>{});
         sentSet.add(channel.id);
-        incrementStat(botId, 'messagesSent').catch(()=>{});
+        incrementStat(botId, 'messagesSent');
         addLog(botId, { type: 'warn', message: `Mensagem enviada em Servidor "${guildName}"` });
 
         if (!cancelTimers.has(channel.id)) {
@@ -327,7 +325,7 @@ async function handleMatchInteractions(botId: string, msg: any, config: BotConfi
           msg.clickButton(button.customId).catch((e: any) => {
              addLog(botId, { type: 'error', message: `Erro no clique (${guildName}): ${e.message}` });
           });
-          incrementStat(botId, 'buttonsClicked').catch(()=>{});
+          incrementStat(botId, 'buttonsClicked');
           addLog(botId, { type: 'success', message: `Clique: "${channel.name}" em "${guildName}"` });
         } catch (e: any) {
           addLog(botId, { type: 'error', message: `Erro no clique (${guildName}): ${e.message}` });
