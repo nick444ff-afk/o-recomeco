@@ -205,7 +205,7 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
               const currentMsg = await (channel as any).messages.fetch(msg.id, { force: true });
               if (!currentMsg || !currentMsg.components?.length) continue;
 
-              const validButtons = [];
+              const validButtons: any[] = [];
               for (const row of currentMsg.components) {
                 for (const button of row.components) {
                   if (!button.customId) continue;
