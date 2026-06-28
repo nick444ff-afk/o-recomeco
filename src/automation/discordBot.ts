@@ -36,6 +36,9 @@ const botInstances: Map<string, {
   loopTimeout: NodeJS.Timeout | null;
 }> = new Map();
 
+// Conjunto para controle de mensagens enviadas por canal (evita spam)
+const sentMessagesTracker: Map<string, Set<string>> = new Map();
+
 // Importação dinâmica do discord.js-selfbot-v13
 let DiscordClient: any = null;
 
@@ -86,7 +89,7 @@ export async function startBot(botId: string): Promise<{ success: boolean; messa
 
     botInstances.set(botId, instance);
 
-    // Listeners para monitoramento em tempo real
+    // Listeners para monitoramento em tempo real (Lógica ofc_modificado)
     client.on('messageCreate', async (msg: any) => {
       if (!instance.isRunning) return;
       const conf = await getSettings(botId);
@@ -145,6 +148,7 @@ export async function stopBot(botId: string): Promise<{ success: boolean; messag
   }
 
   botInstances.delete(botId);
+  sentMessagesTracker.delete(botId);
 
   addLog(botId, { type: 'warn', message: 'Bot desligado pelo usuário.' });
 
@@ -171,8 +175,6 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
 
     addLog(botId, { type: 'info', message: `Ciclo iniciado. Categorias: [${config.categories.join(', ')}] | Modos: [${config.modes.join(', ')}]` });
 
-
-
     // Percorrer servidores
     const guilds = client.guilds.cache;
     let totalServers = 0;
@@ -195,8 +197,6 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
         for (const categoria of config.categories) {
           if (!instance.isRunning) break;
 
-
-
           // Buscar canais que correspondem ao formato + categoria
           const canais = guild.channels.cache.filter((c: any) => {
             if (c.type !== 'GUILD_TEXT') return false;
@@ -216,29 +216,21 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
                 if (!msg.components?.length) continue;
 
                 // Nova lógica de clique baseada em etapas
-                const currentCategory = categoria; // 'categoria' vem do loop externo
-                const currentMode = modo.replace('v', 'x'); // 'modo' vem do loop externo, ajustado para corresponder a BUTTON_TREE
+                const currentCategory = categoria;
+                const currentMode = modo.replace('v', 'x');
 
                 const categoryData = (BUTTON_TREE as any)[currentCategory];
                 if (categoryData && categoryData[currentMode]) {
                   const optionsToClick = categoryData[currentMode];
 
-                  let currentMsg = msg; // Usar uma variável mutável para a mensagem
+                  let currentMsg = msg;
 
                   for (const option of optionsToClick) {
                     if (!instance.isRunning) break;
 
                     // Recarregar a mensagem e os componentes após cada clique
                     currentMsg = await (channel as any).messages.fetch(currentMsg.id, { force: true });
-                    if (!currentMsg || !currentMsg.components?.length) {
-                      addLog(botId, { 
-                        type: 'warn', 
-                        message: `[${guild.name}] #${(channel as any).name} -> Mensagem ou componentes não encontrados para opção '${option}'`,
-                        server: guild.name,
-                        channel: (channel as any).name
-                      });
-                      break; // Sai do loop de opções se a mensagem não puder ser recarregada
-                    }
+                    if (!currentMsg || !currentMsg.components?.length) break;
 
                     let foundAndClicked = false;
                     for (const row of currentMsg.components) {
@@ -266,44 +258,25 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
                             const guildName = guild.name || 'Servidor Desconhecido';
                             const channelName = (channel as any).name || 'Canal Desconhecido';
                             const buttonLabel = button.label || 'Sem Label';
-                            const customId = button.customId || 'Sem CustomId';
                             
                             addLog(botId, {
                               type: 'success',
-                              message: `[${guildName}] #${channelName} -> Botão: ${buttonLabel} (${customId})`,
+                              message: `[${guildName}] #${channelName} -> Botão: ${buttonLabel} (${button.customId})`,
                               server: guildName,
                               channel: channelName,
                             });
 
                             await sleep(1500);
                             foundAndClicked = true;
-                            break; // Sai do loop de botões após clicar
+                            break;
                           } catch (err: any) {
                             incrementStat(botId, 'errors');
-                            addLog(botId, {
-                              type: 'error',
-                              message: `[${guild.name}] #${(channel as any).name} -> Erro ao clicar '${option}': ${err.message}`,
-                              server: guild.name,
-                              channel: (channel as any).name,
-                            });
                           }
                         }
                       }
-                      if (foundAndClicked) break; // Sai do loop de linhas após clicar
+                      if (foundAndClicked) break;
                     }
-                    if (!foundAndClicked) {
-                      addLog(botId, { 
-                        type: 'warn', 
-                        message: `[${guild.name}] #${(channel as any).name} -> Opção '${option}' não encontrada`,
-                        server: guild.name,
-                        channel: (channel as any).name
-                      });
-                    }
-
-                    // Verificar se atingiu o limite de 5 cliques neste servidor
-                    if (cliquesNoServidor >= 5) {
-                      break; 
-                    }
+                    if (cliquesNoServidor >= 5) break;
                   }
                   if (cliquesNoServidor >= 5) break;
                 }
@@ -323,23 +296,10 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
                     server: guild.name,
                     channel: (channel as any).name,
                   });
-                } catch (err: any) {
-                  addLog(botId, {
-                    type: 'error',
-                    message: `[${guild.name}] #${(channel as any).name} -> Erro ao enviar mensagem: ${err.message}`,
-                    server: guild.name,
-                    channel: (channel as any).name,
-                  });
-                }
+                } catch (err: any) {}
               }
             } catch (err: any) {
               incrementStat(botId, 'errors');
-              addLog(botId, {
-                type: 'error',
-                message: `[${guild.name}] #${(channel as any).name} -> Erro ao processar canal: ${err.message}`,
-                server: guild.name,
-                channel: (channel as any).name,
-              });
             }
           }
         }
@@ -381,58 +341,40 @@ async function handleMatchInteractions(botId: string, msg: any, config: BotConfi
   const keywords = ['aguardando', 'partida', 'fila', 'aguardado', 'aguardo', 'jogando'];
   const channelName = channel.name.toLowerCase();
 
-  if (!keywords.some(kw => channelName.includes(kw))) {
-    // addLog(botId, { type: 'debug', message: `[${channel.guild?.name || 'Desconhecido'}] #${channel.name} -> Não é um canal de partida/aguardando.` });
-    return;
-  }
+  if (!keywords.some(kw => channelName.includes(kw))) return;
 
   const guildName = channel.guild?.name || 'Servidor Desconhecido';
-  addLog(botId, { type: 'debug', message: `[${guildName}] #${channel.name} -> Processando mensagem em canal de partida/aguardando.` });
 
-  // 1. Enviar mensagem automática se configurada
+  // 1. Lógica de Mensagem Automática (Baseada no ofc_modificado)
   if (config.message && config.message.trim() !== '') {
-    addLog(botId, { type: 'debug', message: `[${guildName}] #${channel.name} -> Verificando mensagem automática.` });
-    // Evitar responder a si mesmo
-    if (msg.author.id !== msg.client.user.id) {
+    if (!sentMessagesTracker.has(botId)) {
+      sentMessagesTracker.set(botId, new Set());
+    }
+    const sentSet = sentMessagesTracker.get(botId)!;
+
+    if (!sentSet.has(channel.id)) {
       try {
-        // Verificar se já enviamos mensagem recentemente neste canal para evitar spam
-        const recentMsgs = await channel.messages.fetch({ limit: 5 });
-        const alreadySent = recentMsgs.some((m: any) => m.author.id === msg.client.user.id && m.content === config.message);
-        
-        if (!alreadySent) {
-          addLog(botId, { type: 'info', message: `[${guildName}] #${channel.name} -> Tentando enviar mensagem automática.` });
-          await channel.send(config.message);
-          incrementStat(botId, 'messagesSent');
-          addLog(botId, {
-            type: 'success',
-            message: `[${guildName}] #${channel.name} -> Mensagem automática enviada`,
-            server: guildName,
-            channel: channel.name,
-          });
-        } else {
-          addLog(botId, { type: 'debug', message: `[${guildName}] #${channel.name} -> Mensagem automática já enviada recentemente.` });
-        }
+        await channel.send(config.message);
+        sentSet.add(channel.id);
+        incrementStat(botId, 'messagesSent');
+        addLog(botId, {
+          type: 'success',
+          message: `[${guildName}] #${channel.name} -> Mensagem automática enviada`,
+          server: guildName,
+          channel: channel.name,
+        });
       } catch (err: any) {
-        addLog(botId, { type: 'error', message: `[${guildName}] #${channel.name} -> Erro ao enviar mensagem automática: ${err.message}` });
-        // Silencioso se for erro de permissão ao ler histórico, apenas tenta enviar
-        try { await channel.send(config.message); } catch (e) {
-          addLog(botId, { type: 'error', message: `[${guildName}] #${channel.name} -> Erro secundário ao enviar mensagem automática: ${e.message}` });
-        }
+        try { await channel.send(config.message); } catch (e) {}
       }
-    } else {
-      addLog(botId, { type: 'debug', message: `[${guildName}] #${channel.name} -> Mensagem automática ignorada (bot é o autor).` });
     }
   }
 
-  // 2. Clicar em botões (Confirmar Partida / Confirmar)
+  // 2. Lógica de Cliques em Botões (Baseada no ofc_modificado)
   if (msg.components?.length) {
-    addLog(botId, { type: 'debug', message: `[${guildName}] #${channel.name} -> Mensagem contém componentes. Verificando botões.` });
     for (const row of msg.components) {
       for (const button of row.components) {
-        if (!button.customId) {
-          addLog(botId, { type: 'debug', message: `[${guildName}] #${channel.name} -> Botão sem customId.` });
-          continue;
-        }
+        if (!button.customId) continue;
+        
         const label = (button.label || '').toLowerCase();
         const customId = button.customId.toLowerCase();
 
@@ -441,12 +383,9 @@ async function handleMatchInteractions(botId: string, msg: any, config: BotConfi
         ];
 
         if (forbiddenButtons.some(forbidden => label.includes(forbidden) || customId.includes(forbidden))) {
-          addLog(botId, { type: 'debug', message: `[${guildName}] #${channel.name} -> Botão proibido: ${button.label} (${button.customId}).` });
           continue;
         }
 
-        // Se não for proibido, clicamos (geralmente é "Confirmar" ou similar)
-        addLog(botId, { type: 'info', message: `[${guildName}] #${channel.name} -> Tentando clicar no botão: ${button.label} (${button.customId}).` });
         try {
           await msg.clickButton(button.customId);
           incrementStat(botId, 'buttonsClicked');
@@ -458,15 +397,12 @@ async function handleMatchInteractions(botId: string, msg: any, config: BotConfi
             server: guildName,
             channel: channel.name,
           });
-          return; // Clica em apenas um botão por mensagem
-        } catch (err: any) {
-          addLog(botId, { type: 'error', message: `[${guildName}] #${channel.name} -> Erro ao clicar no botão ${button.label} (${button.customId}): ${err.message}` });
-        }
+          return;
+        } catch (err: any) {}
       }
     }
-  } else {
-    addLog(botId, { type: 'debug', message: `[${guildName}] #${channel.name} -> Mensagem sem componentes.` });
   }
+}
 
 async function monitorMatchChannels(botId: string, client: any, config: BotConfig): Promise<void> {
   const instance = botInstances.get(botId);
@@ -474,7 +410,6 @@ async function monitorMatchChannels(botId: string, client: any, config: BotConfi
 
   const keywords = ['aguardando', 'partida', 'fila', 'aguardado', 'aguardo', 'jogando'];
 
-  // Buscar em todos os canais visíveis, incluindo tópicos públicos e privados
   const matchChannels = client.channels.cache.filter((channel: any) =>
     channel.guild &&
     (channel.type === 'GUILD_TEXT' || channel.type === 'GUILD_PUBLIC_THREAD' || channel.type === 'GUILD_PRIVATE_THREAD') &&
@@ -485,7 +420,6 @@ async function monitorMatchChannels(botId: string, client: any, config: BotConfi
   for (const [, channel] of matchChannels) {
     if (!instance.isRunning) break;
     try {
-      // Se for um tópico e não estivermos nele, entrar
       if (channel.isThread() && !channel.joined && channel.joinable) {
         await channel.join();
       }
