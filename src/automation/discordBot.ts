@@ -190,8 +190,9 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
                 const currentCategory = categoria; // 'categoria' vem do loop externo
                 const currentMode = modo.replace('v', 'x'); // 'modo' vem do loop externo, ajustado para corresponder a BUTTON_TREE
 
-                if (BUTTON_TREE[currentCategory] && BUTTON_TREE[currentCategory][currentMode]) {
-                  const optionsToClick = BUTTON_TREE[currentCategory][currentMode];
+                const categoryData = (BUTTON_TREE as any)[currentCategory];
+                if (categoryData && categoryData[currentMode]) {
+                  const optionsToClick = categoryData[currentMode];
 
                   let currentMsg = msg; // Usar uma variável mutável para a mensagem
 
