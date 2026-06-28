@@ -242,7 +242,7 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
                         const customId = button.customId.toLowerCase();
 
                         const forbiddenButtons = [
-                          'sair da fila', 'leave queue', 'leave player', 'cancelar', 'fechar', 'finalizar', 'recusar', 'sair'
+                          'sair da fila', 'leave queue', 'leave player', 'cancelar', 'fechar', 'finalizar', 'recusar', 'sair', 'confirmar'
                         ];
 
                         if (forbiddenButtons.some(forbidden => label.includes(forbidden) || customId.includes(forbidden))) {
@@ -415,7 +415,7 @@ async function handleMatchInteractions(botId: string, msg: any, config: BotConfi
         const customId = button.customId.toLowerCase();
 
         const forbiddenButtons = [
-          'sair da fila', 'leave queue', 'leave player', 'cancelar', 'fechar', 'finalizar', 'recusar', 'sair'
+          'sair da fila', 'leave queue', 'leave player', 'cancelar', 'fechar', 'finalizar', 'recusar', 'sair', 'confirmar'
         ];
 
         if (forbiddenButtons.some(forbidden => label.includes(forbidden) || customId.includes(forbidden))) {
