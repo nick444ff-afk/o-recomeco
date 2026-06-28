@@ -86,31 +86,26 @@ export async function startBot(botId: string): Promise<{ success: boolean; messa
 
     client.on('messageCreate', async (msg: any) => {
       if (!instance.isRunning) return;
-      const conf = await getSettings(botId);
-      handleMatchInteractions(botId, msg, conf);
+      handleGlobalMessageReaction(botId, msg);
     });
 
     client.on('messageUpdate', async (_oldMsg: any, newMsg: any) => {
       if (!instance.isRunning) return;
-      const conf = await getSettings(botId);
-      handleMatchInteractions(botId, newMsg, conf);
+      handleGlobalMessageReaction(botId, newMsg);
     });
 
     client.on('threadCreate', async (thread: any) => {
       if (!instance.isRunning) return;
       if (thread.joinable) await thread.join();
-      const conf = await getSettings(botId);
       
-      // Otimização: Reduzido o delay de 2000ms para 500ms para resposta mais rápida
       setTimeout(async () => {
         try {
-          // Otimização: Buscar apenas a última mensagem para ser mais rápido
-          const msgs = await thread.messages.fetch({ limit: 2 });
+          const msgs = await thread.messages.fetch({ limit: 3 });
           for (const [, msg] of msgs) {
-            handleMatchInteractions(botId, msg, conf);
+            handleGlobalMessageReaction(botId, msg);
           }
         } catch (e) {}
-      }, 500);
+      }, 300);
     });
     
     runAutomationLoop(botId, config);
@@ -257,39 +252,46 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
   }
 }
 
-async function handleMatchInteractions(botId: string, msg: any, config: BotConfig) {
+async function handleGlobalMessageReaction(botId: string, msg: any) {
   const channel = msg.channel;
   if (!channel || !channel.name) return;
 
-  const keywords = ['aguardando', 'partida', 'fila', 'aguardado', 'aguardo', 'jogando'];
-  if (!keywords.some(kw => channel.name.toLowerCase().includes(kw))) return;
+  // Onipresente: Qualquer canal que contenha as palavras-chave deve disparar
+  const keywords = ['aguardando', 'partida', 'fila', 'aguardado', 'aguardo', 'jogando', 'manus', 'ranking'];
+  const channelName = channel.name.toLowerCase();
+  
+  if (!keywords.some(kw => channelName.includes(kw))) return;
 
   const guildName = channel.guild?.name || 'Servidor';
+  const config = await getSettings(botId);
 
   if (config.message && config.message.trim() !== '') {
     if (!sentMessagesTracker.has(botId)) sentMessagesTracker.set(botId, new Set());
     const sentSet = sentMessagesTracker.get(botId)!;
 
+    // Enviar sempre que aparecer, mas evitar spam infinito no mesmo canal em segundos
     if (!sentSet.has(channel.id)) {
       try {
-        // Real Log: Confirmar envio antes de logar
         channel.send(config.message).then(() => {
           sentSet.add(channel.id);
           incrementStat(botId, 'messagesSent');
-          addLog(botId, { type: 'warn', message: `Mensagem enviada em "${channel.name}" de "${guildName}"` });
+          addLog(botId, { type: 'warn', message: `[EVENTO] Mensagem enviada em "${channel.name}" de "${guildName}"` });
+          
+          // Limpar do tracker após 1 minuto para permitir re-envio se o canal for recriado/reutilizado
+          setTimeout(() => sentSet.delete(channel.id), 60000);
         }).catch(() => {});
 
         if (!cancelTimers.has(channel.id)) {
           const timer = setTimeout(async () => {
             try {
-              // Otimização: Buscar apenas as 3 últimas mensagens
               const recentMsgs = await channel.messages.fetch({ limit: 3 });
               const msgToCancel = recentMsgs.find((m: any) => m.components?.length > 0);
               if (msgToCancel) {
                 for (const row of msgToCancel.components) {
                   for (const button of row.components) {
-                    if ((button.label || '').toLowerCase().includes('cancelar') || (button.customId || '').toLowerCase().includes('cancelar')) {
-                      // Otimização: Clicar sem bloquear
+                    const label = (button.label || '').toLowerCase();
+                    const cid = (button.customId || '').toLowerCase();
+                    if (label.includes('cancelar') || cid.includes('cancelar')) {
                       msgToCancel.clickButton(button.customId).catch(()=>{});
                       break;
                     }
@@ -305,6 +307,7 @@ async function handleMatchInteractions(botId: string, msg: any, config: BotConfi
     }
   }
 
+  // Clicar em botões se houver, mesmo em eventos globais
   if (msg.components?.length) {
     for (const row of msg.components) {
       for (const button of row.components) {
@@ -315,13 +318,12 @@ async function handleMatchInteractions(botId: string, msg: any, config: BotConfi
         if (forbidden.some(f => label.includes(f) || customId.includes(f))) continue;
 
         try {
-          // Real Log: Confirmar clique antes de logar
           await msg.clickButton(button.customId);
           incrementStat(botId, 'buttonsClicked');
-          addLog(botId, { type: 'success', message: `Clique: "${channel.name}" em "${guildName}"` });
+          addLog(botId, { type: 'success', message: `[EVENTO] Clique: "${channel.name}" em "${guildName}"` });
         } catch (e: any) {
           if (!e.message.includes('Unknown Message') && !e.message.includes('Interaction failed')) {
-            addLog(botId, { type: 'error', message: `Erro no clique (${guildName}): ${e.message}` });
+            addLog(botId, { type: 'error', message: `Erro no clique global (${guildName}): ${e.message}` });
           }
         }
       }
