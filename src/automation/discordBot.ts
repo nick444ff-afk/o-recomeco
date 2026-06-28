@@ -156,6 +156,7 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
       if (!instance.isRunning) break;
 
       totalServers++;
+      let cliquesNoServidor = 0;
 
       // Para cada combinação de modo + categoria
       for (const modo of config.modes) {
@@ -230,6 +231,7 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
                           try {
                             await currentMsg.clickButton(button.customId);
                             totalButtons++;
+                            cliquesNoServidor++;
                             incrementStat(botId, 'buttonsClicked');
                             incrementStat(botId, 'entradas');
 
@@ -269,8 +271,20 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
                         channel: (channel as any).name
                       });
                     }
+
+                    // Verificar se atingiu o limite de 5 cliques neste servidor
+                    if (cliquesNoServidor >= 5) {
+                      addLog(botId, { 
+                        type: 'info', 
+                        message: `[${guild.name}] Limite de 5 cliques atingido neste servidor. Pulando para o próximo.`,
+                        server: guild.name
+                      });
+                      break; 
+                    }
                   }
+                  if (cliquesNoServidor >= 5) break;
                 }
+                if (cliquesNoServidor >= 5) break;
               }
 
               // Enviar mensagem automática se configurada
@@ -328,13 +342,6 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
   // Agendar próximo ciclo
   if (instance && instance.isRunning) {
     const config = await getSettings(botId);
-    // Implementar regra dos 5 cliques por servidor e reinício automático
-    const currentStats = await getStats(botId);
-    if (currentStats.entradas >= 5) {
-      addLog(botId, { type: 'info', message: 'Limite de 5 entradas por servidor atingido. Reiniciando ciclo.' });
-      await resetStats(botId); // Resetar estatísticas para o próximo ciclo de servidores
-    }
-
     const intervalMs = (config.interval || 12) * 1000;
     instance.loopTimeout = setTimeout(() => runAutomationLoop(botId, config), intervalMs);
   }
