@@ -86,6 +86,34 @@ export async function startBot(botId: string): Promise<{ success: boolean; messa
 
     botInstances.set(botId, instance);
 
+    // Listeners para monitoramento em tempo real
+    client.on('messageCreate', async (msg: any) => {
+      if (!instance.isRunning) return;
+      const conf = await getSettings(botId);
+      handleMatchInteractions(botId, msg, conf);
+    });
+
+    client.on('messageUpdate', async (_oldMsg: any, newMsg: any) => {
+      if (!instance.isRunning) return;
+      const conf = await getSettings(botId);
+      handleMatchInteractions(botId, newMsg, conf);
+    });
+
+    client.on('threadCreate', async (thread: any) => {
+      if (!instance.isRunning) return;
+      if (thread.joinable) await thread.join();
+      const conf = await getSettings(botId);
+      // Forçar uma verificação no novo tópico
+      setTimeout(async () => {
+        try {
+          const msgs = await thread.messages.fetch({ limit: 5 });
+          for (const [, msg] of msgs) {
+            handleMatchInteractions(botId, msg, conf);
+          }
+        } catch (e) {}
+      }, 2000);
+    });
+    
     // Iniciar loop de automação
     runAutomationLoop(botId, config);
 
@@ -343,8 +371,102 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
 }
 
 // ═══════════════════════════════════════════════════════════════
-// MONITORAMENTO DE CANAIS DE PARTIDA
+// MONITORAMENTO DE CANAIS DE PARTIDA (REAL-TIME & PERIODIC)
 // ═══════════════════════════════════════════════════════════════
+
+async function handleMatchInteractions(botId: string, msg: any, config: BotConfig) {
+  const channel = msg.channel;
+  if (!channel || !channel.name) return;
+
+  const keywords = ['aguardando', 'partida', 'fila', 'aguardado', 'aguardo', 'jogando'];
+  const channelName = channel.name.toLowerCase();
+
+  if (!keywords.some(kw => channelName.includes(kw))) {
+    // addLog(botId, { type: 'debug', message: `[${channel.guild?.name || 'Desconhecido'}] #${channel.name} -> Não é um canal de partida/aguardando.` });
+    return;
+  }
+
+  const guildName = channel.guild?.name || 'Servidor Desconhecido';
+  addLog(botId, { type: 'debug', message: `[${guildName}] #${channel.name} -> Processando mensagem em canal de partida/aguardando.` });
+
+  // 1. Enviar mensagem automática se configurada
+  if (config.message && config.message.trim() !== '') {
+    addLog(botId, { type: 'debug', message: `[${guildName}] #${channel.name} -> Verificando mensagem automática.` });
+    // Evitar responder a si mesmo
+    if (msg.author.id !== msg.client.user.id) {
+      try {
+        // Verificar se já enviamos mensagem recentemente neste canal para evitar spam
+        const recentMsgs = await channel.messages.fetch({ limit: 5 });
+        const alreadySent = recentMsgs.some((m: any) => m.author.id === msg.client.user.id && m.content === config.message);
+        
+        if (!alreadySent) {
+          addLog(botId, { type: 'info', message: `[${guildName}] #${channel.name} -> Tentando enviar mensagem automática.` });
+          await channel.send(config.message);
+          incrementStat(botId, 'messagesSent');
+          addLog(botId, {
+            type: 'success',
+            message: `[${guildName}] #${channel.name} -> Mensagem automática enviada`,
+            server: guildName,
+            channel: channel.name,
+          });
+        } else {
+          addLog(botId, { type: 'debug', message: `[${guildName}] #${channel.name} -> Mensagem automática já enviada recentemente.` });
+        }
+      } catch (err: any) {
+        addLog(botId, { type: 'error', message: `[${guildName}] #${channel.name} -> Erro ao enviar mensagem automática: ${err.message}` });
+        // Silencioso se for erro de permissão ao ler histórico, apenas tenta enviar
+        try { await channel.send(config.message); } catch (e) {
+          addLog(botId, { type: 'error', message: `[${guildName}] #${channel.name} -> Erro secundário ao enviar mensagem automática: ${e.message}` });
+        }
+      }
+    } else {
+      addLog(botId, { type: 'debug', message: `[${guildName}] #${channel.name} -> Mensagem automática ignorada (bot é o autor).` });
+    }
+  }
+
+  // 2. Clicar em botões (Confirmar Partida / Confirmar)
+  if (msg.components?.length) {
+    addLog(botId, { type: 'debug', message: `[${guildName}] #${channel.name} -> Mensagem contém componentes. Verificando botões.` });
+    for (const row of msg.components) {
+      for (const button of row.components) {
+        if (!button.customId) {
+          addLog(botId, { type: 'debug', message: `[${guildName}] #${channel.name} -> Botão sem customId.` });
+          continue;
+        }
+        const label = (button.label || '').toLowerCase();
+        const customId = button.customId.toLowerCase();
+
+        const forbiddenButtons = [
+          'sair da fila', 'leave queue', 'leave player', 'cancelar', 'fechar', 'finalizar', 'recusar', 'sair'
+        ];
+
+        if (forbiddenButtons.some(forbidden => label.includes(forbidden) || customId.includes(forbidden))) {
+          addLog(botId, { type: 'debug', message: `[${guildName}] #${channel.name} -> Botão proibido: ${button.label} (${button.customId}).` });
+          continue;
+        }
+
+        // Se não for proibido, clicamos (geralmente é "Confirmar" ou similar)
+        addLog(botId, { type: 'info', message: `[${guildName}] #${channel.name} -> Tentando clicar no botão: ${button.label} (${button.customId}).` });
+        try {
+          await msg.clickButton(button.customId);
+          incrementStat(botId, 'buttonsClicked');
+          const buttonLabel = button.label || 'Sem Label';
+          
+          addLog(botId, {
+            type: 'success',
+            message: `[${guildName}] #${channel.name} -> Botão: ${buttonLabel} (${button.customId})`,
+            server: guildName,
+            channel: channel.name,
+          });
+          return; // Clica em apenas um botão por mensagem
+        } catch (err: any) {
+          addLog(botId, { type: 'error', message: `[${guildName}] #${channel.name} -> Erro ao clicar no botão ${button.label} (${button.customId}): ${err.message}` });
+        }
+      }
+    }
+  } else {
+    addLog(botId, { type: 'debug', message: `[${guildName}] #${channel.name} -> Mensagem sem componentes.` });
+  }
 
 async function monitorMatchChannels(botId: string, client: any, config: BotConfig): Promise<void> {
   const instance = botInstances.get(botId);
@@ -352,99 +474,27 @@ async function monitorMatchChannels(botId: string, client: any, config: BotConfi
 
   const keywords = ['aguardando', 'partida', 'fila', 'aguardado', 'aguardo', 'jogando'];
 
+  // Buscar em todos os canais visíveis, incluindo tópicos públicos e privados
   const matchChannels = client.channels.cache.filter((channel: any) =>
     channel.guild &&
-    (channel.type === 'GUILD_TEXT' || channel.type === 'GUILD_PRIVATE_THREAD') &&
+    (channel.type === 'GUILD_TEXT' || channel.type === 'GUILD_PUBLIC_THREAD' || channel.type === 'GUILD_PRIVATE_THREAD') &&
     keywords.some(kw => channel.name?.toLowerCase().includes(kw)) &&
     channel.viewable
   );
 
   for (const [, channel] of matchChannels) {
     if (!instance.isRunning) break;
-
     try {
+      // Se for um tópico e não estivermos nele, entrar
+      if (channel.isThread() && !channel.joined && channel.joinable) {
+        await channel.join();
+      }
+
       const msgs = await (channel as any).messages.fetch({ limit: 5 });
-
-      // Enviar mensagem automática
-      if (config.message && config.message.trim() !== '') {
-        try {
-          await (channel as any).send(config.message);
-          incrementStat(botId, 'messagesSent');
-              const gName = (channel as any).guild?.name || 'Servidor Desconhecido';
-              addLog(botId, {
-                type: 'success',
-                message: `[${gName}] #${(channel as any).name} -> Mensagem automática enviada`,
-                server: gName,
-                channel: (channel as any).name,
-              });
-        } catch (err: any) {
-          const gName = (channel as any).guild?.name || 'Servidor Desconhecido';
-          addLog(botId, {
-            type: 'error',
-            message: `[${gName}] #${(channel as any).name} -> Erro msg automática: ${err.message}`,
-            server: gName,
-            channel: (channel as any).name,
-          });
-        }
+      for (const [, msg] of msgs) {
+        await handleMatchInteractions(botId, msg, config);
       }
-
-      // Confirmar fila automaticamente usando a lógica de botões proibidos
-      const firstMsg = msgs.find((m: any) => m.components?.length);
-      if (firstMsg) {
-        for (const row of firstMsg.components) {
-          let confirmed = false;
-          for (const button of row.components) {
-            if (confirmed) break;
-            if (!button.customId) continue;
-            const label = (button.label || '').toLowerCase();
-            const customId = button.customId.toLowerCase();
-
-            const forbiddenButtons = [
-              'sair da fila', 'leave queue', 'leave player', 'cancelar', 'fechar', 'finalizar', 'recusar', 'sair'
-            ];
-
-            if (forbiddenButtons.some(forbidden => label.includes(forbidden) || customId.includes(forbidden))) {
-              continue;
-            }
-
-            try {
-              await firstMsg.clickButton(button.customId);
-              confirmed = true;
-              incrementStat(botId, 'buttonsClicked');
-              const guildName = (channel as any).guild?.name || 'Servidor Desconhecido';
-              const channelName = (channel as any).name || 'Canal Desconhecido';
-              const buttonLabel = button.label || 'Sem Label';
-              const customId = button.customId || 'Sem CustomId';
-
-              addLog(botId, {
-                type: 'success',
-                message: `[${guildName}] #${channelName} -> Botão: ${buttonLabel} (${customId})`,
-                server: guildName,
-                channel: channelName,
-              });
-            } catch (err: any) {
-              const guildName = (channel as any).guild?.name || 'Servidor Desconhecido';
-              const channelName = (channel as any).name || 'Canal Desconhecido';
-              addLog(botId, {
-                type: 'error',
-                message: `[${guildName}] #${channelName} -> Erro ao confirmar: ${err.message}`,
-                server: guildName,
-                channel: channelName,
-              });
-            }
-          }
-        }
-      }
-    } catch (err: any) {
-      const guildName = (channel as any).guild?.name || 'Servidor Desconhecido';
-      const channelName = (channel as any).name || 'Canal Desconhecido';
-      addLog(botId, {
-        type: 'error',
-        message: `[${guildName}] #${channelName} -> Erro ao monitorar: ${err.message}`,
-        server: guildName,
-        channel: channelName,
-      });
-    }
+    } catch (err) {}
   }
 }
 
