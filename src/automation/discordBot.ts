@@ -1,7 +1,33 @@
 import { addLog } from '../services/logService';
-import { incrementStat, setStat } from '../services/statsService';
+import { incrementStat, setStat, getStats, resetStats } from '../services/statsService';
 import { getSettings } from '../services/settingsService';
 import { BotConfig } from '../types';
+
+const BUTTON_TREE = {
+  Mobile: {
+    "1x1": ["Gel normal", "Gel inf"],
+    "2x2": ["Normal", "Full ump xm8"],
+    "3x3": ["Normal", "Full ump xm8"],
+    "4x4": ["Normal", "Full ump xm8"]
+  },
+  Emulador: {
+    "1x1": ["Gel normal", "Gel inf"],
+    "2x2": ["Normal", "Full ump xm8"],
+    "3x3": ["Normal", "Full ump xm8"],
+    "4x4": ["Normal", "Full ump xm8"]
+  },
+  Misto: {
+    "2x2": ["1 Emu"],
+    "3x3": ["1 Emu", "2 Emu"],
+    "4x4": ["1 Emu", "2 Emu", "3 Emu"]
+  },
+  Tático: {
+    "1x1": ["Mobile", "Emulador"],
+    "2x2": ["Mobile", "Emulador", "Misto"],
+    "3x3": ["Mobile", "Emulador", "Misto"],
+    "4x4": ["Mobile", "Emulador", "Misto"]
+  }
+};
 
 // Estado global dos bots
 const botInstances: Map<string, {
@@ -117,13 +143,7 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
 
     addLog(botId, { type: 'info', message: `Ciclo iniciado. Categorias: [${config.categories.join(', ')}] | Modos: [${config.modes.join(', ')}]` });
 
-    // Mapear categorias para busca
-    const categoriaMap: Record<string, string> = {
-      'Mobile': 'mob',
-      'Emulador': 'emu',
-      'Misto': 'misto',
-      'Tático': 'tatico',
-    };
+
 
     // Percorrer servidores
     const guilds = client.guilds.cache;
@@ -146,14 +166,13 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
         for (const categoria of config.categories) {
           if (!instance.isRunning) break;
 
-          const categoriaSearch = categoriaMap[categoria];
-          if (!categoriaSearch) continue;
+
 
           // Buscar canais que correspondem ao formato + categoria
           const canais = guild.channels.cache.filter((c: any) => {
             if (c.type !== 'GUILD_TEXT') return false;
             const nome = c.name.toLowerCase();
-            return nome.includes(formatSearch) && nome.includes(categoriaSearch);
+            return nome.includes(formatSearch) && nome.includes(categoria.toLowerCase());
           });
 
           for (const [, channel] of canais) {
@@ -167,43 +186,72 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
                 if (!instance.isRunning) break;
                 if (!msg.components?.length) continue;
 
-                // Percorrer componentes e clicar em botões válidos
-                for (const row of msg.components) {
-                  for (const button of row.components) {
-                    if (!instance.isRunning) break;
-                    if (!button.customId) continue;
+                // Nova lógica de clique baseada em etapas
+                const currentCategory = categoria; // 'categoria' vem do loop externo
+                const currentMode = modo.replace('v', 'x'); // 'modo' vem do loop externo, ajustado para corresponder a BUTTON_TREE
 
-                    // Ignorar botões negativos
-                    const label = (button.label || '').toLowerCase();
-                    if (['leave_player', 'cancelar', 'fechar', 'finalizar', 'recusar', 'sair'].includes(button.customId) ||
-                        ['cancelar', 'fechar', 'finalizar', 'recusar', 'sair'].includes(label)) {
-                      continue;
+                if (BUTTON_TREE[currentCategory] && BUTTON_TREE[currentCategory][currentMode]) {
+                  const optionsToClick = BUTTON_TREE[currentCategory][currentMode];
+
+                  let currentMsg = msg; // Usar uma variável mutável para a mensagem
+
+                  for (const option of optionsToClick) {
+                    if (!instance.isRunning) break;
+
+                    // Recarregar a mensagem e os componentes após cada clique
+                    currentMsg = await (channel as any).messages.fetch(currentMsg.id, { force: true });
+                    if (!currentMsg || !currentMsg.components?.length) {
+                      addLog(botId, { type: 'warn', message: `Mensagem ou componentes não encontrados após recarregar para opção '${option}' em #${(channel as any).name}` });
+                      break; // Sai do loop de opções se a mensagem não puder ser recarregada
                     }
 
-                    // Clicar no botão
-                    try {
-                      await msg.clickButton(button.customId);
-                      totalButtons++;
-                      incrementStat(botId, 'buttonsClicked');
-                      incrementStat(botId, 'entradas');
+                    let foundAndClicked = false;
+                    for (const row of currentMsg.components) {
+                      for (const button of row.components) {
+                        if (!button.customId) continue;
+                        const label = (button.label || '').toLowerCase();
+                        const customId = button.customId.toLowerCase();
 
-                      addLog(botId, {
-                        type: 'success',
-                        message: `Botão clicado: "${button.label || button.customId}" em #${(channel as any).name}`,
-                        server: guild.name,
-                        channel: (channel as any).name,
-                      });
+                        const forbiddenButtons = [
+                          'sair da fila', 'leave queue', 'leave player', 'cancelar', 'fechar', 'finalizar', 'recusar', 'sair'
+                        ];
 
-                      // Aguardar um pouco entre cliques
-                      await sleep(1500);
-                    } catch (err: any) {
-                      incrementStat(botId, 'errors');
-                      addLog(botId, {
-                        type: 'error',
-                        message: `Erro ao clicar botão: ${err.message}`,
-                        server: guild.name,
-                        channel: (channel as any).name,
-                      });
+                        if (forbiddenButtons.some(forbidden => label.includes(forbidden) || customId.includes(forbidden))) {
+                          continue;
+                        }
+
+                        if (label.includes(option.toLowerCase()) || customId.includes(option.toLowerCase())) {
+                          try {
+                            await currentMsg.clickButton(button.customId);
+                            totalButtons++;
+                            incrementStat(botId, 'buttonsClicked');
+                            incrementStat(botId, 'entradas');
+
+                            addLog(botId, {
+                              type: 'success',
+                              message: `Botão clicado: "${button.label || button.customId}" (${option}) em #${(channel as any).name}`,
+                              server: guild.name,
+                              channel: (channel as any).name,
+                            });
+
+                            await sleep(1500);
+                            foundAndClicked = true;
+                            break; // Sai do loop de botões após clicar
+                          } catch (err: any) {
+                            incrementStat(botId, 'errors');
+                            addLog(botId, {
+                              type: 'error',
+                              message: `Erro ao clicar botão: ${err.message} para opção '${option}' em #${(channel as any).name}`,
+                              server: guild.name,
+                              channel: (channel as any).name,
+                            });
+                          }
+                        }
+                      }
+                      if (foundAndClicked) break; // Sai do loop de linhas após clicar
+                    }
+                    if (!foundAndClicked) {
+                      addLog(botId, { type: 'warn', message: `Opção '${option}' não encontrada ou clicada em #${(channel as any).name}` });
                     }
                   }
                 }
@@ -263,6 +311,13 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
   // Agendar próximo ciclo
   if (instance && instance.isRunning) {
     const config = await getSettings(botId);
+    // Implementar regra dos 5 cliques por servidor e reinício automático
+    const currentStats = await getStats(botId);
+    if (currentStats.entradas >= 5) {
+      addLog(botId, { type: 'info', message: 'Limite de 5 entradas por servidor atingido. Reiniciando ciclo.' });
+      await resetStats(botId); // Resetar estatísticas para o próximo ciclo de servidores
+    }
+
     const intervalMs = (config.interval || 12) * 1000;
     instance.loopTimeout = setTimeout(() => runAutomationLoop(botId, config), intervalMs);
   }
@@ -312,7 +367,7 @@ async function monitorMatchChannels(botId: string, client: any, config: BotConfi
         }
       }
 
-      // Confirmar fila automaticamente
+      // Confirmar fila automaticamente usando a lógica de botões proibidos
       const firstMsg = msgs.find((m: any) => m.components?.length);
       if (firstMsg) {
         for (const row of firstMsg.components) {
@@ -321,8 +376,15 @@ async function monitorMatchChannels(botId: string, client: any, config: BotConfi
             if (confirmed) break;
             if (!button.customId) continue;
             const label = (button.label || '').toLowerCase();
-            if (['cancelar', 'finalizar', 'recusar', 'fechar', 'sair'].includes(label)) continue;
-            if (button.customId === 'leave_player') continue;
+            const customId = button.customId.toLowerCase();
+
+            const forbiddenButtons = [
+              'sair da fila', 'leave queue', 'leave player', 'cancelar', 'fechar', 'finalizar', 'recusar', 'sair'
+            ];
+
+            if (forbiddenButtons.some(forbidden => label.includes(forbidden) || customId.includes(forbidden))) {
+              continue;
+            }
 
             try {
               await firstMsg.clickButton(button.customId);
