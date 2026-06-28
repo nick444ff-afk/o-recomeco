@@ -17,12 +17,12 @@ app.use(express.json());
 // API Routes
 app.use('/api', apiRoutes);
 
-// Compatibilidade com rotas do frontend (sem /api prefix)
-app.use('/', apiRoutes);
-
 // Servir frontend estático (React build)
 const frontendPath = path.join(__dirname, '..', 'frontend', 'dist');
 app.use(express.static(frontendPath));
+
+// Compatibilidade com rotas do frontend (sem /api prefix) - apenas se não for arquivo estático
+app.use('/', apiRoutes);
 
 // SPA fallback - servir index.html para rotas não encontradas
 app.get('*', (_req, res) => {
