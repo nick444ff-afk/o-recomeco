@@ -148,108 +148,100 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
 
     const guilds = client.guilds.cache;
     
-    // Otimização: Processar guilds em paralelo para maior velocidade
-    const guildPromises = guilds.map(async (guild: any) => {
-      if (!instance.isRunning) return;
+    // Processar cada guild uma por uma para garantir a ordem
+    for (const [, guild] of guilds) {
+      if (!instance.isRunning) break;
       const guildName = guild.name || 'Servidor';
       let cliquesNoServidor = 0;
+      let canaisEncontrados: any[] = [];
 
+      // 1. Escanear todos os canais que batem com a configuração
       for (const modo of config.modes) {
-        if (!instance.isRunning) break;
         const formatSearch = modo.replace('v', 'x').toLowerCase();
-
         for (const categoria of config.categories) {
-          if (!instance.isRunning) break;
-
-          const canais = guild.channels.cache.filter((c: any) => {
+          const matchingChannels = guild.channels.cache.filter((c: any) => {
             if (c.type !== 'GUILD_TEXT' && c.type !== 'GUILD_NEWS') return false;
             const nome = c.name.toLowerCase();
             return nome.includes(formatSearch) && nome.includes(categoria.toLowerCase());
           });
-
-          for (const [, channel] of canais) {
-            if (!instance.isRunning) break;
-
-            try {
-              const msgs = await (channel as any).messages.fetch({ limit: 3 });
-              
-              for (const [, msg] of msgs) {
-                if (!instance.isRunning) break;
-                if (!msg.components?.length) continue;
-
-                const categoryData = (BUTTON_TREE as any)[categoria];
-                if (categoryData && categoryData[modo.replace('v', 'x')]) {
-                  const optionsToClick = categoryData[modo.replace('v', 'x')];
-                  let currentMsg = msg;
-
-                  for (const option of optionsToClick) {
-                    if (!instance.isRunning || cliquesNoServidor >= 5) break;
-                    
-                    // Otimização: Evitar fetch repetido se a mensagem já tem componentes em cache
-                    if (!currentMsg.components?.length) {
-                       currentMsg = await (channel as any).messages.fetch(currentMsg.id, { force: true });
-                    }
-                    
-                    if (!currentMsg || !currentMsg.components?.length) break;
-
-                    let foundAndClicked = false;
-                    for (const row of currentMsg.components) {
-                      for (const button of row.components) {
-                        if (!button.customId) continue;
-                        const label = (button.label || '').toLowerCase();
-                        const customId = button.customId.toLowerCase();
-                        const forbidden = ['sair', 'leave', 'cancelar', 'fechar', 'finalizar', 'recusar', 'confirmar'];
-
-                        if (forbidden.some(f => label.includes(f) || customId.includes(f))) continue;
-
-                        if (label.includes(option.toLowerCase()) || customId.includes(option.toLowerCase())) {
-                          try {
-                            // Real Log: Registrar o log apenas se o clique for bem-sucedido
-                            await currentMsg.clickButton(button.customId);
-                            
-                            cliquesNoServidor++;
-                            incrementStat(botId, 'buttonsClicked');
-                            addLog(botId, { 
-                              type: 'success', 
-                              message: `Clique: "${channel.name}" em "${guildName}"` 
-                            });
-                            
-                            await sleep(300);
-                            foundAndClicked = true;
-                            break;
-                          } catch (e: any) {
-                            // Silencioso para não poluir logs com erros de botões expirados, mas loga erro real se necessário
-                            if (!e.message.includes('Unknown Message') && !e.message.includes('Interaction failed')) {
-                               addLog(botId, { type: 'error', message: `Erro no clique (${guildName}): ${e.message}` });
-                            }
-                          }
-                        }
-                      }
-                      if (foundAndClicked) break;
-                    }
-                  }
-                }
-              }
-
-              if (config.message && config.message.trim() !== '') {
-                try {
-                  // Real Log: Aguardar o envio ou usar .then para confirmar o log real
-                  (channel as any).send(config.message).then(() => {
-                    incrementStat(botId, 'messagesSent');
-                    addLog(botId, { type: 'warn', message: `Mensagem enviada em "${channel.name}" de "${guildName}"` });
-                  }).catch(() => {});
-                } catch (e) {}
-              }
-            } catch (e: any) {
-              addLog(botId, { type: 'error', message: `Erro no canal ${channel.name}: ${e.message}` });
-            }
+          
+          for (const [, channel] of matchingChannels) {
+            canaisEncontrados.push({ channel, modo, categoria });
           }
         }
       }
-    });
 
-    // Aguardar o processamento de todas as guilds
-    await Promise.all(guildPromises);
+      // 2. Dar até 5 cliques, um por um, nos canais encontrados
+      for (const item of canaisEncontrados) {
+        if (!instance.isRunning || cliquesNoServidor >= 5) break;
+        const { channel, modo, categoria } = item;
+
+        try {
+          const msgs = await (channel as any).messages.fetch({ limit: 3 });
+          for (const [, msg] of msgs) {
+            if (!instance.isRunning || cliquesNoServidor >= 5) break;
+            if (!msg.components?.length) continue;
+
+            const categoryData = (BUTTON_TREE as any)[categoria];
+            if (categoryData && categoryData[modo.replace('v', 'x')]) {
+              const optionsToClick = categoryData[modo.replace('v', 'x')];
+              
+              for (const option of optionsToClick) {
+                if (!instance.isRunning || cliquesNoServidor >= 5) break;
+                
+                // Fetch atualizado para garantir componentes
+                const currentMsg = await (channel as any).messages.fetch(msg.id, { force: true });
+                if (!currentMsg || !currentMsg.components?.length) break;
+
+                let foundAndClicked = false;
+                for (const row of currentMsg.components) {
+                  for (const button of row.components) {
+                    if (!button.customId) continue;
+                    const label = (button.label || '').toLowerCase();
+                    const customId = button.customId.toLowerCase();
+                    const forbidden = ['sair', 'leave', 'cancelar', 'fechar', 'finalizar', 'recusar', 'confirmar'];
+
+                    if (forbidden.some(f => label.includes(f) || customId.includes(f))) continue;
+
+                    if (label.includes(option.toLowerCase()) || customId.includes(option.toLowerCase())) {
+                      try {
+                        await currentMsg.clickButton(button.customId);
+                        cliquesNoServidor++;
+                        incrementStat(botId, 'buttonsClicked');
+                        addLog(botId, { type: 'success', message: `Clique: "${channel.name}" em "${guildName}"` });
+                        await sleep(500); // Delay entre cliques para estabilidade
+                        foundAndClicked = true;
+                        break;
+                      } catch (e: any) {
+                        if (!e.message.includes('Unknown Message') && !e.message.includes('Interaction failed')) {
+                           addLog(botId, { type: 'error', message: `Erro no clique (${guildName}): ${e.message}` });
+                        }
+                      }
+                    }
+                  }
+                  if (foundAndClicked) break;
+                }
+              }
+            }
+          }
+        } catch (e: any) {
+          // Silencioso para erros de fetch
+        }
+      }
+
+      // 3. Enviar a mensagem se configurada (após os cliques ou se não houver cliques)
+      if (config.message && config.message.trim() !== '' && instance.isRunning) {
+        // Enviar no primeiro canal válido encontrado para este servidor
+        if (canaisEncontrados.length > 0) {
+          const targetChannel = canaisEncontrados[0].channel;
+          try {
+            await targetChannel.send(config.message);
+            incrementStat(botId, 'messagesSent');
+            addLog(botId, { type: 'warn', message: `Mensagem enviada em "${targetChannel.name}" de "${guildName}"` });
+          } catch (e) {}
+        }
+      }
+    }
 
   } catch (err: any) {
     addLog(botId, { type: 'error', message: `Erro no ciclo: ${err.message}` });
