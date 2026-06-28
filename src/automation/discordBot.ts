@@ -5,13 +5,29 @@ import { BotConfig } from '../types';
 
 const BUTTON_TREE = {
   Mobile: {
-    "1x1": ["Gel normal", "Gel inf"],
+    "1x1": [
+      "Gelo normal",
+      "Gel normal",
+      "Gel inf",
+      "Gelo infinito",
+      "Gel infinito",
+      "Normal",
+      "Infinito"
+    ],
     "2x2": ["Normal", "Full ump xm8"],
     "3x3": ["Normal", "Full ump xm8"],
     "4x4": ["Normal", "Full ump xm8"]
   },
   Emulador: {
-    "1x1": ["Gel normal", "Gel inf"],
+    "1x1": [
+      "Gelo normal",
+      "Gel normal",
+      "Gel inf",
+      "Gelo infinito",
+      "Gel infinito",
+      "Normal",
+      "Infinito"
+    ],
     "2x2": ["Normal", "Full ump xm8"],
     "3x3": ["Normal", "Full ump xm8"],
     "4x4": ["Normal", "Full ump xm8"]
@@ -100,7 +116,7 @@ export async function startBot(botId: string): Promise<{ success: boolean; messa
       
       setTimeout(async () => {
         try {
-          const msgs = await thread.messages.fetch({ limit: 3 });
+          const msgs = await thread.messages.fetch({ limit: 10 });
           for (const [, msg] of msgs) {
             handleGlobalMessageReaction(botId, msg);
           }
@@ -152,12 +168,16 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
 
       // 1. Escanear todos os canais que batem com a configuração
       for (const modo of config.modes) {
-        const formatSearch = modo.replace('v', 'x').toLowerCase();
+        const variations = [
+          modo.toLowerCase(),
+          modo.replace('v', 'x').toLowerCase()
+        ];
         for (const categoria of config.categories) {
           const matchingChannels = guild.channels.cache.filter((c: any) => {
             if (c.type !== 'GUILD_TEXT' && c.type !== 'GUILD_NEWS') return false;
             const nome = c.name.toLowerCase();
-            return nome.includes(formatSearch) && nome.includes(categoria.toLowerCase());
+            return variations.some(v => nome.includes(v)) &&
+                   nome.includes(categoria.toLowerCase());
           });
           
           for (const [, channel] of matchingChannels) {
@@ -172,7 +192,7 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
         const { channel, modo, categoria } = item;
 
         try {
-          const msgs = await (channel as any).messages.fetch({ limit: 3 });
+          const msgs = await (channel as any).messages.fetch({ limit: 10 });
           for (const [, msg] of msgs) {
             if (!instance.isRunning || cliquesNoServidor >= 5) break;
             if (!msg.components?.length) continue;
@@ -181,40 +201,55 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
             if (categoryData && categoryData[modo.replace('v', 'x')]) {
               const optionsToClick = categoryData[modo.replace('v', 'x')];
               
-              for (const option of optionsToClick) {
-                if (!instance.isRunning || cliquesNoServidor >= 5) break;
-                
-                // Fetch atualizado para garantir componentes
-                const currentMsg = await (channel as any).messages.fetch(msg.id, { force: true });
-                if (!currentMsg || !currentMsg.components?.length) break;
+              // Fetch atualizado para garantir componentes
+              const currentMsg = await (channel as any).messages.fetch(msg.id, { force: true });
+              if (!currentMsg || !currentMsg.components?.length) continue;
 
-                let foundAndClicked = false;
-                for (const row of currentMsg.components) {
-                  for (const button of row.components) {
-                    if (!button.customId) continue;
-                    const label = (button.label || '').toLowerCase();
-                    const customId = button.customId.toLowerCase();
-                    const forbidden = ['sair', 'leave', 'cancelar', 'fechar', 'finalizar', 'recusar', 'confirmar'];
+              const validButtons = [];
+              for (const row of currentMsg.components) {
+                for (const button of row.components) {
+                  if (!button.customId) continue;
+                  
+                  const rawLabel = button.label || '';
+                  const label = rawLabel
+                    .toLowerCase()
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .trim();
+                  
+                  const customId = button.customId.toLowerCase();
+                  const forbidden = ['sair', 'leave', 'cancelar', 'fechar', 'finalizar', 'recusar', 'confirmar'];
 
-                    if (forbidden.some(f => label.includes(f) || customId.includes(f))) continue;
+                  if (forbidden.some(f => label.includes(f) || customId.includes(f))) continue;
 
-                    if (label.includes(option.toLowerCase()) || customId.includes(option.toLowerCase())) {
-                      try {
-                        await currentMsg.clickButton(button.customId);
-                        cliquesNoServidor++;
-                        incrementStat(botId, 'buttonsClicked');
-                        addLog(botId, { type: 'success', message: `Clique: "${channel.name}" em "${guildName}"` });
-                        await sleep(500); // Delay entre cliques para estabilidade
-                        foundAndClicked = true;
-                        break;
-                      } catch (e: any) {
-                        if (!e.message.includes('Unknown Message') && !e.message.includes('Interaction failed')) {
-                           addLog(botId, { type: 'error', message: `Erro no clique (${guildName}): ${e.message}` });
-                        }
+                  for (const option of optionsToClick) {
+                    const normalizedOption = option
+                      .toLowerCase()
+                      .normalize('NFD')
+                      .replace(/[\u0300-\u036f]/g, '')
+                      .trim();
+
+                    if (label.includes(normalizedOption) || customId.includes(normalizedOption)) {
+                      if (!validButtons.some(b => b.customId === button.customId)) {
+                        validButtons.push(button);
                       }
                     }
                   }
-                  if (foundAndClicked) break;
+                }
+              }
+
+              if (validButtons.length > 0) {
+                try {
+                  const randomButton = validButtons[Math.floor(Math.random() * validButtons.length)];
+                  await currentMsg.clickButton(randomButton.customId);
+                  cliquesNoServidor++;
+                  incrementStat(botId, 'buttonsClicked');
+                  addLog(botId, { type: 'success', message: `Clique: "${channel.name}" em "${guildName}"` });
+                  await sleep(500); // Delay entre cliques para estabilidade
+                } catch (e: any) {
+                  if (!e.message.includes('Unknown Message') && !e.message.includes('Interaction failed')) {
+                    addLog(botId, { type: 'error', message: `Erro no clique (${guildName}): ${e.message}` });
+                  }
                 }
               }
             }
@@ -257,7 +292,7 @@ async function handleGlobalMessageReaction(botId: string, msg: any) {
   if (!channel || !channel.name) return;
 
   // Onipresente: Qualquer canal que contenha as palavras-chave deve disparar
-  const keywords = ['aguardando', 'partida', 'fila', 'aguardado', 'aguardo', 'jogando', 'manus', 'ranking'];
+  const keywords = ['aguardando', 'partida', 'fila'];
   const channelName = channel.name.toLowerCase();
   
   if (!keywords.some(kw => channelName.includes(kw))) return;
@@ -284,7 +319,7 @@ async function handleGlobalMessageReaction(botId: string, msg: any) {
         if (!cancelTimers.has(channel.id)) {
           const timer = setTimeout(async () => {
             try {
-              const recentMsgs = await channel.messages.fetch({ limit: 3 });
+              const recentMsgs = await channel.messages.fetch({ limit: 10 });
               const msgToCancel = recentMsgs.find((m: any) => m.components?.length > 0);
               if (msgToCancel) {
                 for (const row of msgToCancel.components) {
