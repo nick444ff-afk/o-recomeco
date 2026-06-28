@@ -100,14 +100,17 @@ export async function startBot(botId: string): Promise<{ success: boolean; messa
       if (!instance.isRunning) return;
       if (thread.joinable) await thread.join();
       const conf = await getSettings(botId);
+      
+      // Otimização: Reduzido o delay de 2000ms para 500ms para resposta mais rápida
       setTimeout(async () => {
         try {
-          const msgs = await thread.messages.fetch({ limit: 5 });
+          // Otimização: Buscar apenas a última mensagem para ser mais rápido
+          const msgs = await thread.messages.fetch({ limit: 2 });
           for (const [, msg] of msgs) {
             handleMatchInteractions(botId, msg, conf);
           }
         } catch (e) {}
-      }, 2000);
+      }, 500);
     });
     
     runAutomationLoop(botId, config);
@@ -139,12 +142,17 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
     const config = await getSettings(botId);
     const client = instance.client;
 
-    incrementStat(botId, 'executions');
-    setStat(botId, 'lastExecution', new Date());
+    // Otimização: Executar atualizações de status em paralelo sem bloquear o loop
+    Promise.all([
+      incrementStat(botId, 'executions'),
+      setStat(botId, 'lastExecution', new Date())
+    ]).catch(() => {});
 
     const guilds = client.guilds.cache;
-    for (const [, guild] of guilds) {
-      if (!instance.isRunning) break;
+    
+    // Otimização: Processar guilds em paralelo para maior velocidade
+    const guildPromises = guilds.map(async (guild: any) => {
+      if (!instance.isRunning) return;
       const guildName = guild.name || 'Servidor';
       let cliquesNoServidor = 0;
 
@@ -155,6 +163,7 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
         for (const categoria of config.categories) {
           if (!instance.isRunning || cliquesNoServidor >= 5) break;
 
+          // Otimização: Usar cache diretamente sem fetch
           const canais = guild.channels.cache.filter((c: any) => {
             if (c.type !== 'GUILD_TEXT') return false;
             const nome = c.name.toLowerCase();
@@ -165,7 +174,9 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
             if (!instance.isRunning || cliquesNoServidor >= 5) break;
 
             try {
-              const msgs = await (channel as any).messages.fetch({ limit: 10 });
+              // Otimização: Reduzido limit de 10 para 3, pois só importam as mensagens mais recentes
+              const msgs = await (channel as any).messages.fetch({ limit: 3 });
+              
               for (const [, msg] of msgs) {
                 if (!instance.isRunning || cliquesNoServidor >= 5) break;
                 if (!msg.components?.length) continue;
@@ -177,7 +188,12 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
 
                   for (const option of optionsToClick) {
                     if (!instance.isRunning || cliquesNoServidor >= 5) break;
-                    currentMsg = await (channel as any).messages.fetch(currentMsg.id, { force: true });
+                    
+                    // Otimização: Evitar fetch repetido se a mensagem já tem componentes em cache
+                    if (!currentMsg.components?.length) {
+                       currentMsg = await (channel as any).messages.fetch(currentMsg.id, { force: true });
+                    }
+                    
                     if (!currentMsg || !currentMsg.components?.length) break;
 
                     let foundAndClicked = false;
@@ -192,14 +208,20 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
 
                         if (label.includes(option.toLowerCase()) || customId.includes(option.toLowerCase())) {
                           try {
-                            await currentMsg.clickButton(button.customId);
+                            // Otimização: Não aguardar o clique para registrar o log e incrementar status
+                            currentMsg.clickButton(button.customId).catch((e: any) => {
+                               addLog(botId, { type: 'error', message: `Erro no clique: ${e.message}` });
+                            });
+                            
                             cliquesNoServidor++;
-                            incrementStat(botId, 'buttonsClicked');
+                            incrementStat(botId, 'buttonsClicked').catch(()=>{});
                             addLog(botId, { 
                               type: 'success', 
                               message: `Clique: "${channel.name}" em "${guildName}"` 
                             });
-                            await sleep(1500);
+                            
+                            // Otimização: Reduzido delay de 1500ms para 300ms (apenas o mínimo para evitar rate limit)
+                            await sleep(300);
                             foundAndClicked = true;
                             break;
                           } catch (e: any) {
@@ -215,8 +237,9 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
 
               if (config.message && config.message.trim() !== '' && cliquesNoServidor < 5) {
                 try {
-                  await (channel as any).send(config.message);
-                  incrementStat(botId, 'messagesSent');
+                  // Otimização: Não aguardar o envio da mensagem
+                  (channel as any).send(config.message).catch(()=>{});
+                  incrementStat(botId, 'messagesSent').catch(()=>{});
                   addLog(botId, { type: 'warn', message: `Mensagem enviada em Servidor "${guildName}"` });
                 } catch (e) {}
               }
@@ -226,14 +249,20 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
           }
         }
       }
-    }
+    });
+
+    // Aguardar o processamento de todas as guilds
+    await Promise.all(guildPromises);
+
   } catch (err: any) {
     addLog(botId, { type: 'error', message: `Erro no ciclo: ${err.message}` });
   }
 
   if (instance && instance.isRunning) {
     const config = await getSettings(botId);
-    instance.loopTimeout = setTimeout(() => runAutomationLoop(botId, config), (config.interval || 12) * 1000);
+    // Otimização: Reduzir o intervalo mínimo para 2 segundos se não configurado, garantindo tempo real
+    const intervalMs = Math.max((config.interval || 2) * 1000, 2000);
+    instance.loopTimeout = setTimeout(() => runAutomationLoop(botId, config), intervalMs);
   }
 }
 
@@ -252,21 +281,24 @@ async function handleMatchInteractions(botId: string, msg: any, config: BotConfi
 
     if (!sentSet.has(channel.id)) {
       try {
-        await channel.send(config.message);
+        // Otimização: Enviar mensagem sem bloquear
+        channel.send(config.message).catch(()=>{});
         sentSet.add(channel.id);
-        incrementStat(botId, 'messagesSent');
+        incrementStat(botId, 'messagesSent').catch(()=>{});
         addLog(botId, { type: 'warn', message: `Mensagem enviada em Servidor "${guildName}"` });
 
         if (!cancelTimers.has(channel.id)) {
           const timer = setTimeout(async () => {
             try {
-              const recentMsgs = await channel.messages.fetch({ limit: 10 });
+              // Otimização: Buscar apenas as 3 últimas mensagens
+              const recentMsgs = await channel.messages.fetch({ limit: 3 });
               const msgToCancel = recentMsgs.find((m: any) => m.components?.length > 0);
               if (msgToCancel) {
                 for (const row of msgToCancel.components) {
                   for (const button of row.components) {
                     if ((button.label || '').toLowerCase().includes('cancelar') || (button.customId || '').toLowerCase().includes('cancelar')) {
-                      await msgToCancel.clickButton(button.customId);
+                      // Otimização: Clicar sem bloquear
+                      msgToCancel.clickButton(button.customId).catch(()=>{});
                       break;
                     }
                   }
@@ -291,8 +323,11 @@ async function handleMatchInteractions(botId: string, msg: any, config: BotConfi
         if (forbidden.some(f => label.includes(f) || customId.includes(f))) continue;
 
         try {
-          await msg.clickButton(button.customId);
-          incrementStat(botId, 'buttonsClicked');
+          // Otimização: Clicar sem bloquear
+          msg.clickButton(button.customId).catch((e: any) => {
+             addLog(botId, { type: 'error', message: `Erro no clique (${guildName}): ${e.message}` });
+          });
+          incrementStat(botId, 'buttonsClicked').catch(()=>{});
           addLog(botId, { type: 'success', message: `Clique: "${channel.name}" em "${guildName}"` });
         } catch (e: any) {
           addLog(botId, { type: 'error', message: `Erro no clique (${guildName}): ${e.message}` });

@@ -1,7 +1,13 @@
 import prisma from '../config/database';
 import { BotConfig } from '../types';
 
+const settingsCache = new Map<string, BotConfig>();
+
 export async function getSettings(botId: string): Promise<BotConfig> {
+  if (settingsCache.has(botId)) {
+    return settingsCache.get(botId)!;
+  }
+
   let settings = await prisma.settings.findUnique({
     where: { botId },
   });
@@ -20,7 +26,7 @@ export async function getSettings(botId: string): Promise<BotConfig> {
     });
   }
 
-  return {
+  const botConfig: BotConfig = {
     botId: settings.botId,
     token: settings.token,
     message: settings.message,
@@ -29,6 +35,9 @@ export async function getSettings(botId: string): Promise<BotConfig> {
     modes: settings.modes,
     isRunning: settings.isRunning,
   };
+
+  settingsCache.set(botId, botConfig);
+  return botConfig;
 }
 
 export async function saveSettings(botId: string, data: Partial<BotConfig>): Promise<BotConfig> {
@@ -53,7 +62,7 @@ export async function saveSettings(botId: string, data: Partial<BotConfig>): Pro
     },
   });
 
-  return {
+  const botConfig: BotConfig = {
     botId: settings.botId,
     token: settings.token,
     message: settings.message,
@@ -62,6 +71,9 @@ export async function saveSettings(botId: string, data: Partial<BotConfig>): Pro
     modes: settings.modes,
     isRunning: settings.isRunning,
   };
+
+  settingsCache.set(botId, botConfig); // Update cache after saving
+  return botConfig;
 }
 
 export async function setRunning(botId: string, isRunning: boolean): Promise<void> {
@@ -78,4 +90,8 @@ export async function setRunning(botId: string, isRunning: boolean): Promise<voi
       isRunning,
     },
   });
+  if (settingsCache.has(botId)) {
+    const cachedSettings = settingsCache.get(botId)!;
+    settingsCache.set(botId, { ...cachedSettings, isRunning }); // Update cache
+  }
 }
