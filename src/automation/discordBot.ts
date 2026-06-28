@@ -256,14 +256,29 @@ async function handleGlobalMessageReaction(botId: string, msg: any) {
   const channel = msg.channel;
   if (!channel || !channel.name) return;
 
-  // Onipresente: Qualquer canal que contenha as palavras-chave deve disparar
-  const keywords = ['aguardando', 'partida', 'fila', 'aguardado', 'aguardo', 'jogando', 'manus', 'ranking'];
   const channelName = channel.name.toLowerCase();
-  
-  if (!keywords.some(kw => channelName.includes(kw))) return;
-
   const guildName = channel.guild?.name || 'Servidor';
   const config = await getSettings(botId);
+
+  // 1. Verificar palavras-chave onipresentes
+  const globalKeywords = ['aguardando', 'partida', 'fila', 'aguardado', 'aguardo', 'jogando', 'manus', 'ranking'];
+  let shouldReact = globalKeywords.some(kw => channelName.includes(kw));
+
+  // 2. Verificar se o canal bate com QUALQUER modo/categoria configurado
+  if (!shouldReact) {
+    for (const modo of config.modes) {
+      const formatSearch = modo.replace('v', 'x').toLowerCase();
+      for (const categoria of config.categories) {
+        if (channelName.includes(formatSearch) && channelName.includes(categoria.toLowerCase())) {
+          shouldReact = true;
+          break;
+        }
+      }
+      if (shouldReact) break;
+    }
+  }
+  
+  if (!shouldReact) return;
 
   if (config.message && config.message.trim() !== '') {
     if (!sentMessagesTracker.has(botId)) sentMessagesTracker.set(botId, new Set());
