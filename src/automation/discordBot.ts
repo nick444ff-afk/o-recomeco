@@ -241,6 +241,8 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
           } catch (e) {}
         }
       }
+      
+      // Otimização: Assim que terminar o servidor (por cliques ou por esgotar canais), o loop já passa para o próximo automaticamente
     }
 
   } catch (err: any) {
