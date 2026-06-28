@@ -38,6 +38,8 @@ const botInstances: Map<string, {
 
 // Conjunto para controle de mensagens enviadas por canal (evita spam)
 const sentMessagesTracker: Map<string, Set<string>> = new Map();
+// Controle de temporizadores de cancelamento por canal
+const cancelTimers: Map<string, NodeJS.Timeout> = new Map();
 
 // Importação dinâmica do discord.js-selfbot-v13
 let DiscordClient: any = null;
@@ -363,6 +365,40 @@ async function handleMatchInteractions(botId: string, msg: any, config: BotConfi
           server: guildName,
           channel: channel.name,
         });
+
+        // Configurar temporizador de 3 minutos para clicar em "Cancelar"
+        if (!cancelTimers.has(channel.id)) {
+          const timer = setTimeout(async () => {
+            try {
+              // Buscar a mensagem mais recente com componentes no canal
+              const recentMsgs = await channel.messages.fetch({ limit: 10 });
+              const msgToCancel = recentMsgs.find((m: any) => m.components?.length > 0);
+              
+              if (msgToCancel) {
+                for (const row of msgToCancel.components) {
+                  for (const button of row.components) {
+                    const label = (button.label || '').toLowerCase();
+                    const customId = (button.customId || '').toLowerCase();
+                    
+                    if (label.includes('cancelar') || customId.includes('cancelar')) {
+                      await msgToCancel.clickButton(button.customId);
+                      addLog(botId, {
+                        type: 'warn',
+                        message: `[${guildName}] #${channel.name} -> Auto-cancelamento após 3 minutos executado`,
+                        server: guildName,
+                        channel: channel.name,
+                      });
+                      break;
+                    }
+                  }
+                }
+              }
+            } catch (err) {}
+            cancelTimers.delete(channel.id);
+          }, 3 * 60 * 1000);
+          
+          cancelTimers.set(channel.id, timer);
+        }
       } catch (err: any) {
         try { await channel.send(config.message); } catch (e) {}
       }
