@@ -202,7 +202,12 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
                     // Recarregar a mensagem e os componentes após cada clique
                     currentMsg = await (channel as any).messages.fetch(currentMsg.id, { force: true });
                     if (!currentMsg || !currentMsg.components?.length) {
-                      addLog(botId, { type: 'warn', message: `Mensagem ou componentes não encontrados após recarregar para opção '${option}' em #${(channel as any).name}` });
+                      addLog(botId, { 
+                        type: 'warn', 
+                        message: `[${guild.name}] #${(channel as any).name} -> Mensagem ou componentes não encontrados para opção '${option}'`,
+                        server: guild.name,
+                        channel: (channel as any).name
+                      });
                       break; // Sai do loop de opções se a mensagem não puder ser recarregada
                     }
 
@@ -228,11 +233,16 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
                             incrementStat(botId, 'buttonsClicked');
                             incrementStat(botId, 'entradas');
 
+                            const guildName = guild.name || 'Servidor Desconhecido';
+                            const channelName = (channel as any).name || 'Canal Desconhecido';
+                            const buttonLabel = button.label || 'Sem Label';
+                            const customId = button.customId || 'Sem CustomId';
+                            
                             addLog(botId, {
                               type: 'success',
-                              message: `Botão clicado: "${button.label || button.customId}" (${option}) em #${(channel as any).name}`,
-                              server: guild.name,
-                              channel: (channel as any).name,
+                              message: `[${guildName}] #${channelName} -> Botão: ${buttonLabel} (${customId})`,
+                              server: guildName,
+                              channel: channelName,
                             });
 
                             await sleep(1500);
@@ -242,7 +252,7 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
                             incrementStat(botId, 'errors');
                             addLog(botId, {
                               type: 'error',
-                              message: `Erro ao clicar botão: ${err.message} para opção '${option}' em #${(channel as any).name}`,
+                              message: `[${guild.name}] #${(channel as any).name} -> Erro ao clicar '${option}': ${err.message}`,
                               server: guild.name,
                               channel: (channel as any).name,
                             });
@@ -252,7 +262,12 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
                       if (foundAndClicked) break; // Sai do loop de linhas após clicar
                     }
                     if (!foundAndClicked) {
-                      addLog(botId, { type: 'warn', message: `Opção '${option}' não encontrada ou clicada em #${(channel as any).name}` });
+                      addLog(botId, { 
+                        type: 'warn', 
+                        message: `[${guild.name}] #${(channel as any).name} -> Opção '${option}' não encontrada`,
+                        server: guild.name,
+                        channel: (channel as any).name
+                      });
                     }
                   }
                 }
@@ -267,14 +282,14 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
 
                   addLog(botId, {
                     type: 'success',
-                    message: `Mensagem enviada em #${(channel as any).name}`,
+                    message: `[${guild.name}] #${(channel as any).name} -> Mensagem automática enviada`,
                     server: guild.name,
                     channel: (channel as any).name,
                   });
                 } catch (err: any) {
                   addLog(botId, {
                     type: 'error',
-                    message: `Erro ao enviar mensagem: ${err.message}`,
+                    message: `[${guild.name}] #${(channel as any).name} -> Erro ao enviar mensagem: ${err.message}`,
                     server: guild.name,
                     channel: (channel as any).name,
                   });
@@ -284,8 +299,9 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
               incrementStat(botId, 'errors');
               addLog(botId, {
                 type: 'error',
-                message: `Erro ao processar canal #${(channel as any).name}: ${err.message}`,
+                message: `[${guild.name}] #${(channel as any).name} -> Erro ao processar canal: ${err.message}`,
                 server: guild.name,
+                channel: (channel as any).name,
               });
             }
           }
@@ -352,17 +368,19 @@ async function monitorMatchChannels(botId: string, client: any, config: BotConfi
         try {
           await (channel as any).send(config.message);
           incrementStat(botId, 'messagesSent');
-          addLog(botId, {
-            type: 'success',
-            message: `Msg automática enviada em #${(channel as any).name}`,
-            server: (channel as any).guild?.name || '?',
-            channel: (channel as any).name,
-          });
+              const gName = (channel as any).guild?.name || 'Servidor Desconhecido';
+              addLog(botId, {
+                type: 'success',
+                message: `[${gName}] #${(channel as any).name} -> Mensagem automática enviada`,
+                server: gName,
+                channel: (channel as any).name,
+              });
         } catch (err: any) {
+          const gName = (channel as any).guild?.name || 'Servidor Desconhecido';
           addLog(botId, {
             type: 'error',
-            message: `Erro msg automática: ${err.message}`,
-            server: (channel as any).guild?.name || '?',
+            message: `[${gName}] #${(channel as any).name} -> Erro msg automática: ${err.message}`,
+            server: gName,
             channel: (channel as any).name,
           });
         }
@@ -391,26 +409,38 @@ async function monitorMatchChannels(botId: string, client: any, config: BotConfi
               await firstMsg.clickButton(button.customId);
               confirmed = true;
               incrementStat(botId, 'buttonsClicked');
+              const guildName = (channel as any).guild?.name || 'Servidor Desconhecido';
+              const channelName = (channel as any).name || 'Canal Desconhecido';
+              const buttonLabel = button.label || 'Sem Label';
+              const customId = button.customId || 'Sem CustomId';
+
               addLog(botId, {
                 type: 'success',
-                message: `Fila confirmada em #${(channel as any).name}: "${button.label || button.customId}"`,
-                server: (channel as any).guild?.name || '?',
-                channel: (channel as any).name,
+                message: `[${guildName}] #${channelName} -> Botão: ${buttonLabel} (${customId})`,
+                server: guildName,
+                channel: channelName,
               });
             } catch (err: any) {
+              const guildName = (channel as any).guild?.name || 'Servidor Desconhecido';
+              const channelName = (channel as any).name || 'Canal Desconhecido';
               addLog(botId, {
                 type: 'error',
-                message: `Erro ao confirmar: ${err.message}`,
-                channel: (channel as any).name,
+                message: `[${guildName}] #${channelName} -> Erro ao confirmar: ${err.message}`,
+                server: guildName,
+                channel: channelName,
               });
             }
           }
         }
       }
     } catch (err: any) {
+      const guildName = (channel as any).guild?.name || 'Servidor Desconhecido';
+      const channelName = (channel as any).name || 'Canal Desconhecido';
       addLog(botId, {
         type: 'error',
-        message: `Erro ao monitorar #${(channel as any).name}: ${err.message}`,
+        message: `[${guildName}] #${channelName} -> Erro ao monitorar: ${err.message}`,
+        server: guildName,
+        channel: channelName,
       });
     }
   }

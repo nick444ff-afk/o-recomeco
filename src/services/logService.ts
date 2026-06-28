@@ -27,8 +27,9 @@ export function addLog(botId: string, entry: LogEntry): void {
   });
 
   // Log no console do backend
-  const prefix = { info: 'ℹ️', success: '✅', warn: '⚠️', error: '❌' }[entry.type] || 'ℹ️';
-  console.log(`[${botId}] ${prefix} ${entry.message}`);
+  const now = new Date();
+  const hora = now.toLocaleTimeString('pt-BR', { hour12: false });
+  console.log(`[${hora}] [${botId}] ${entry.message}`);
 }
 
 export function getAndClearLogs(botId: string): LogEntry[] {
