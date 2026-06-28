@@ -274,11 +274,6 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
 
                     // Verificar se atingiu o limite de 5 cliques neste servidor
                     if (cliquesNoServidor >= 5) {
-                      addLog(botId, { 
-                        type: 'info', 
-                        message: `[${guild.name}] Limite de 5 cliques atingido neste servidor. Pulando para o próximo.`,
-                        server: guild.name
-                      });
                       break; 
                     }
                   }
@@ -332,7 +327,7 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
     });
 
     // Monitorar canais de partida (aguardando/partida/fila)
-    await monitorMatchChannels(botId, client, config);
+    monitorMatchChannels(botId, client, config);
 
   } catch (err: any) {
     incrementStat(botId, 'errors');
@@ -355,12 +350,12 @@ async function monitorMatchChannels(botId: string, client: any, config: BotConfi
   const instance = botInstances.get(botId);
   if (!instance || !instance.isRunning) return;
 
+  const keywords = ['aguardando', 'partida', 'fila', 'aguardado', 'aguardo', 'jogando'];
+
   const matchChannels = client.channels.cache.filter((channel: any) =>
     channel.guild &&
     (channel.type === 'GUILD_TEXT' || channel.type === 'GUILD_PRIVATE_THREAD') &&
-    (channel.name?.toLowerCase().includes('aguardando') ||
-     channel.name?.toLowerCase().includes('partida') ||
-     channel.name?.toLowerCase().includes('fila')) &&
+    keywords.some(kw => channel.name?.toLowerCase().includes(kw)) &&
     channel.viewable
   );
 

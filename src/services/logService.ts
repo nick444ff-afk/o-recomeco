@@ -13,12 +13,16 @@ export function addLog(botId: string, entry: LogEntry): void {
   }
   logBuffers.set(botId, buffer);
 
+  const now = new Date();
+  const hora = now.toLocaleTimeString('pt-BR', { hour12: false });
+  const formattedMessage = `[${hora}] ${entry.message}`;
+
   // Salvar no banco de forma assíncrona (fire and forget)
   prisma.log.create({
     data: {
       botId,
       type: entry.type,
-      message: entry.message,
+      message: formattedMessage,
       server: entry.server || '',
       channel: entry.channel || '',
     },
@@ -27,9 +31,10 @@ export function addLog(botId: string, entry: LogEntry): void {
   });
 
   // Log no console do backend
-  const now = new Date();
-  const hora = now.toLocaleTimeString('pt-BR', { hour12: false });
-  console.log(`[${hora}] [${botId}] ${entry.message}`);
+  console.log(`[${botId}] ${formattedMessage}`);
+  
+  // Atualizar a mensagem no buffer para o frontend
+  entry.message = formattedMessage;
 }
 
 export function getAndClearLogs(botId: string): LogEntry[] {

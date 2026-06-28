@@ -50,17 +50,21 @@ function App() {
 
   // Add log
   const addLog = useCallback((msg: string, tipo: string) => {
+    // Se a mensagem já contém timestamp [HH:MM:SS], não adicionamos outro
+    if (msg.startsWith('[')) {
+      setLogs(prev => {
+        const next = [...prev, { time: '', message: msg, type: tipo }];
+        if (next.length > 200) next.shift();
+        return next;
+      });
+      return;
+    }
+
     const now = new Date();
     const time = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
     
-    // Se a mensagem já começa com um timestamp ou formato de servidor [Servidor], 
-    // podemos optar por manter o comportamento padrão ou ajustar.
-    // O usuário solicitou: [HH:MM:SS] [Servidor] #canal -> Botão: Label (id)
-    // Como o frontend já adiciona [HH:MM:SS], vamos garantir que a mensagem do backend
-    // seja limpa se necessário, ou apenas concatenar.
-    
     setLogs(prev => {
-      const next = [...prev, { time, message: msg, type: tipo }];
+      const next = [...prev, { time: `[${time}] `, message: msg, type: tipo }];
       if (next.length > 200) next.shift();
       return next;
     });
@@ -429,6 +433,7 @@ function App() {
           <div className="logs" ref={logsRef}>
             {logs.map((log, i) => (
               <div key={i} className="log-entry">
+                <span className={`log-time`}>{log.time}</span>
                 <span className={`log-${log.type}`}>{log.message}</span>
               </div>
             ))}
