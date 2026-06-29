@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { startBot, stopBot, isBotRunning } from '../automation/discordBot';
-import { getAndClearLogs } from '../services/logService';
+import { getAndClearLogs, exportLogs } from '../services/logService';
 import { getStats, resetStats as resetStatsService } from '../services/statsService';
 import { getSettings, saveSettings } from '../services/settingsService';
 
@@ -76,6 +76,19 @@ router.get('/logs/:botId', (req: Request, res: Response) => {
   const { botId } = req.params;
   const logs = getAndClearLogs(botId);
   res.json({ logs });
+});
+
+router.get('/export_logs/:botId', async (req: Request, res: Response) => {
+  try {
+    const { botId } = req.params;
+    const logContent = await exportLogs(botId);
+    
+    res.setHeader('Content-Type', 'text/plain');
+    res.setHeader('Content-Disposition', `attachment; filename=logs_${botId}.txt`);
+    res.send(logContent);
+  } catch (err: any) {
+    res.status(500).json({ status: 'error', message: err.message });
+  }
 });
 
 // ═══════════════════════════════════════════════════════════════

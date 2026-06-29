@@ -340,6 +340,30 @@ function App() {
     addLog('Logs limpos.', 'info');
   };
 
+  // Baixar logs
+  const baixarLogs = async () => {
+    try {
+      showToast('Preparando download...', 'info');
+      const response = await axios.get(`${API_URL}/export_logs/${botAtivo}`, {
+        responseType: 'blob'
+      });
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `logs_${botAtivo}_${new Date().toISOString().split('T')[0]}.txt`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      
+      showToast('Download concluído!', 'success');
+    } catch (err) {
+      console.error('Erro ao baixar logs:', err);
+      showToast('Erro ao baixar logs', 'error');
+    }
+  };
+
   // Formatação
   const formatUptime = () => {
     const h = Math.floor(uptimeSeconds / 3600);
@@ -498,7 +522,10 @@ function App() {
               </div>
             ))}
           </div>
-          <button className="clear-logs-btn" onClick={limparLogs}>Limpar Logs</button>
+          <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
+            <button className="clear-logs-btn" onClick={limparLogs} style={{ flex: 1, marginTop: 0 }}>LIMPAR LOGS</button>
+            <button className="download-logs-btn" onClick={baixarLogs} style={{ flex: 1 }}>BAIXAR LOGS</button>
+          </div>
         </div>
       </div>
 
@@ -634,7 +661,14 @@ input:focus, textarea:focus, select:focus { border-color: rgba(34,211,238,0.4); 
 }
 .clear-logs-btn:hover { background: rgba(255,90,90,0.2); border-color: rgba(255,90,90,0.6); box-shadow: 0 0 12px rgba(255,90,90,0.2); }
 .clear-logs-btn:active { transform: scale(0.97); }
-.toast {
+	.download-logs-btn {
+	  width: 100%; padding: 12px; border-radius: 12px;
+	  border: 1px solid rgba(34,211,238,0.35); background: rgba(34,211,238,0.1);
+	  color: #22d3ee; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.25s ease;
+	}
+	.download-logs-btn:hover { background: rgba(34,211,238,0.2); border-color: rgba(34,211,238,0.6); box-shadow: 0 0 12px rgba(34,211,238,0.2); }
+	.download-logs-btn:active { transform: scale(0.97); }
+	.toast {
   position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(80px);
   background: #1d4ed8; color: #fff; padding: 12px 24px; border-radius: 30px;
   font-size: 14px; font-weight: 600; box-shadow: 0 8px 25px rgba(0,0,0,0.5);

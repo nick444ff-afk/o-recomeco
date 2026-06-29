@@ -71,3 +71,12 @@ export function getAndClearLogs(botId: string): LogEntry[] {
 export function getAllLogs(botId: string): LogEntry[] {
   return logBuffers.get(botId) || [];
 }
+
+export async function exportLogs(botId: string): Promise<string> {
+  const logs = await prisma.log.findMany({
+    where: { botId },
+    orderBy: { createdAt: 'asc' }
+  });
+
+  return logs.map(log => log.message).join('\n');
+}
