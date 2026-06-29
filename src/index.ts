@@ -19,23 +19,17 @@ app.use('/api', apiRoutes);
 // Caminho do Frontend (Configuração de Sucesso)
 const frontendPath = path.resolve(process.cwd(), 'frontend/dist');
 
-// Servir arquivos estáticos da pasta assets explicitamente
-app.use('/assets', express.static(path.join(frontendPath, 'assets'), {
-  setHeaders: (res) => {
-    res.set('Cache-Control', 'public, max-age=31536000');
-  }
-}));
-
-// Servir o restante da pasta dist
+// Servir o frontend de forma robusta
 app.use(express.static(frontendPath));
 
-// Fallback para SPA
+// Fallback para SPA (necessário para React Router ou caminhos relativos)
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'API not found' });
   }
   
-  res.sendFile(path.join(frontendPath, 'index.html'));
+  // Envia o index.html para qualquer outra rota, permitindo que o React assuma
+  res.sendFile(path.resolve(frontendPath, 'index.html'));
 });
 
 async function bootstrap() {
