@@ -26,6 +26,7 @@ const cleanName = (str: string) =>
     .replace(/[^\w-]/g, "")
     .toLowerCase();
 
+// Mapeamento Completo do ZIP
 const CATEGORY_KEYWORDS: Record<string, string[]> = {
     'Mobile': ["mobile", "mob", "celular", "📱"],
     'Emulador': ["emulador", "emu", "emul", "🖥️", "🖥"],
@@ -36,13 +37,13 @@ const CATEGORY_KEYWORDS: Record<string, string[]> = {
 export async function startBot(botId: string): Promise<{ success: boolean; message: string }> {
   try {
     const config = await getSettings(botId);
-    if (!config.token) return { success: false, message: 'Token ausente.' };
+    if (!config.token) return { success: false, message: 'Token não configurado.' };
 
     const Client = await getDiscordClient();
     const client = new Client({ checkUpdate: false });
 
     await client.login(config.token);
-    addLog(botId, { type: 'info', message: `Bot ${botId} online como ${client.user?.tag}` });
+    addLog(botId, { type: 'info', message: `Bot ${botId} logado: ${client.user?.tag}` });
 
     const instance = {
       client,
@@ -53,11 +54,11 @@ export async function startBot(botId: string): Promise<{ success: boolean; messa
     };
     botInstances.set(botId, instance);
 
-    // Eventos (Lógica do ZIP: Reação Imediata)
+    // Eventos de Reação Imediata
     client.on('messageCreate', (msg: any) => handleAutoLogic(botId, instance, msg, config));
     client.on('messageUpdate', (_old: any, msg: any) => handleAutoLogic(botId, instance, msg, config));
 
-    // Loop de Varredura (Lógica do ZIP: Rebusca de canais)
+    // Ciclo de Varredura (Conforme ZIP)
     instance.loopInterval = setInterval(async () => {
         if (!instance.isRunning) return;
         await runAutomationCycle(botId, instance, config);
@@ -74,18 +75,17 @@ async function runAutomationCycle(botId: string, instance: any, config: BotConfi
     incrementStat(botId, 'executions');
     setStat(botId, 'lastExecution', new Date());
 
-    // Percorrer a cascata de seleções do usuário
+    // Varredura por todos os modos (1x1 a 4x4) e categorias selecionadas
     for (const [cat, modes] of Object.entries(config.selections || {})) {
         for (const [mode, gelos] of Object.entries(modes)) {
-            // Se algum tipo de gelo estiver ativo para este modo/categoria
             if (Object.values(gelos).some(v => v)) {
                 const modeClean = mode.toLowerCase().replace('v', 'x');
                 const catKeywords = CATEGORY_KEYWORDS[cat] || [];
                 
-                // Buscar canais que batem com o Modo e Categoria
                 const targets = client.channels.cache.filter((c: any) => {
                     if (c.type !== 'GUILD_TEXT') return false;
                     const name = cleanName(c.name);
+                    // Deve conter o modo (ex: 1x1) e a categoria (ex: mob)
                     return name.includes(modeClean) && catKeywords.some(kw => name.includes(cleanName(kw)));
                 });
 
@@ -101,7 +101,7 @@ async function runAutomationCycle(botId: string, instance: any, config: BotConfi
         }
     }
 
-    // Monitoramento Global (Fila/Partida/Aguardando)
+    // Monitoramento Global de Filas
     const globals = client.channels.cache.filter((c: any) => 
         c.viewable && (c.type === 'GUILD_TEXT' || c.type === 'GUILD_PRIVATE_THREAD') &&
         ['fila', 'partida', 'aguardando'].some(kw => c.name?.toLowerCase().includes(kw))
@@ -135,7 +135,7 @@ async function handleAutoLogic(botId: string, instance: any, msg: any, config: B
         }
     }
 
-    // 2. Cliques em Botões (Prioridade Absoluta do ZIP)
+    // 2. Cliques em Botões
     if (!msg.components?.length || instance.clickedMessages.has(msg.id)) return;
 
     const allButtons: any[] = [];
@@ -143,8 +143,9 @@ async function handleAutoLogic(botId: string, instance: any, msg: any, config: B
         for (const btn of row.components) if (btn.customId) allButtons.push(btn);
     }
 
-    // A. Prioridade 1: Gelo Selecionado na Cascata
+    // A. Prioridade 1: Gelo Específico (Foco em 1x1 Mobile/Emulador conforme solicitado)
     if (target) {
+        const geloKeywords = ["gel normal", "gel inf", "gelo normal", "gelo infinito"];
         for (const [geloName, active] of Object.entries(target.gelos)) {
             if (!active) continue;
             const kw = geloName.toLowerCase();
@@ -156,7 +157,7 @@ async function handleAutoLogic(botId: string, instance: any, msg: any, config: B
         }
     }
 
-    // B. Prioridade 2: Categoria Selecionada
+    // B. Prioridade 2: Categoria (Mobile, Emulador, Misto, Tático)
     if (target) {
         const keywords = CATEGORY_KEYWORDS[target.cat] || [];
         const btn = allButtons.find(b => {
@@ -166,21 +167,13 @@ async function handleAutoLogic(botId: string, instance: any, msg: any, config: B
         if (btn) return await executeClick(botId, instance, msg, btn, channel.name, `CAT:${target.cat.toUpperCase()}`);
     }
 
-    // C. Prioridade 3: Botões de Gelo Genéricos (Solicitados pelo usuário)
-    const genericGelos = ["gel normal", "gel inf", "gelo normal", "gelo infinito"];
-    const geloBtn = allButtons.find(b => {
-        const text = `${b.label || ''} ${b.customId}`.toLowerCase();
-        return genericGelos.some(g => text.includes(g));
-    });
-    if (geloBtn) return await executeClick(botId, instance, msg, geloBtn, channel.name, "GELO GENÉRICO");
-
-    // D. Fallback: Qualquer botão de ação (Exceto Cancelar/Sair)
+    // C. Fallback: Botão Genérico de Entrada (Conforme ZIP)
     const forbidden = ['sair', 'leave', 'cancelar', 'fechar', 'finalizar', 'recusar', 'leave_player'];
     const actionBtn = allButtons.find(b => {
         const text = `${b.label || ''} ${b.customId}`.toLowerCase();
         return !forbidden.some(f => text.includes(f));
     });
-    if (actionBtn) return await executeClick(botId, instance, msg, actionBtn, channel.name, "AÇÃO");
+    if (actionBtn) return await executeClick(botId, instance, msg, actionBtn, channel.name, "ENTRAR");
 }
 
 async function executeClick(botId: string, instance: any, msg: any, button: any, channelName: string, type: string) {
