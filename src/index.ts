@@ -22,16 +22,19 @@ const frontendPath = path.join(process.cwd(), 'frontend', 'dist');
 // Servir arquivos estáticos
 app.use(express.static(frontendPath));
 
-// SPA fallback
+// Servir index.html para qualquer rota que não seja API ou arquivo estático
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ message: `Route ${req.method}:${req.path} not found` });
   }
   
   const indexPath = path.join(frontendPath, 'index.html');
+  console.log(`[ROUTER] Request: ${req.path} -> Serving: ${indexPath}`);
+  
   res.sendFile(indexPath, (err) => {
     if (err) {
-      res.status(200).json({ status: 'ok', message: 'SystemX API Online. Frontend em desenvolvimento.' });
+      console.error(`[ROUTER] Erro ao servir index.html: ${err.message}`);
+      res.status(500).send("Erro ao carregar o painel. Verifique se o build foi concluído.");
     }
   });
 });
