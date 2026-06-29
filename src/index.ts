@@ -38,10 +38,12 @@ app.get('*', (req, res) => {
 
 async function bootstrap() {
   try {
+    console.log('[BOOTSTRAP] Iniciando servidor...');
     await prisma.$connect();
     console.log('[DATABASE] PostgreSQL conectado.');
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`[SERVER] Rodando na porta ${PORT}`);
+      console.log(`[SERVER] Frontend path: ${frontendPath}`);
     });
   } catch (err: any) {
     console.error('[FATAL] Erro:', err.message);
