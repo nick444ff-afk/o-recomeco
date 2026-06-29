@@ -17,7 +17,7 @@ app.use(express.json());
 app.use('/api', apiRoutes);
 
 // Caminho do Frontend
-const frontendPath = path.resolve(__dirname, '../../frontend/dist');
+const frontendPath = path.join(process.cwd(), 'frontend', 'dist');
 
 // Servir arquivos estáticos
 app.use(express.static(frontendPath));
