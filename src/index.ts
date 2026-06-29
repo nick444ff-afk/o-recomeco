@@ -20,23 +20,12 @@ app.use('/api', apiRoutes);
 const frontendPath = path.resolve(__dirname, '../frontend/dist');
 
 // Servir arquivos estáticos
-app.use(express.static(frontendPath));
+app.use(express.static(frontendPath, { etag: false }));
 
-// Servir index.html para qualquer rota que não seja API ou arquivo estático
+// Servir index.html para qualquer rota (SPA Fallback)
 app.get('*', (req, res) => {
-  if (req.path.startsWith('/api/')) {
-    return res.status(404).json({ message: `Route ${req.method}:${req.path} not found` });
-  }
-  
-  const indexPath = path.join(frontendPath, 'index.html');
-  console.log(`[ROUTER] Request: ${req.path} -> Serving: ${indexPath}`);
-  
-  res.sendFile(indexPath, (err) => {
-    if (err) {
-      console.error(`[ROUTER] Erro ao servir index.html: ${err.message}`);
-      res.status(500).send("Erro ao carregar o painel. Verifique se o build foi concluído.");
-    }
-  });
+  if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'API not found' });
+  res.sendFile(path.join(frontendPath, 'index.html'), { etag: false });
 });
 
 async function bootstrap() {
