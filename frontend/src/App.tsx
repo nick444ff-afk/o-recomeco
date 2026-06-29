@@ -36,8 +36,8 @@ function App() {
   const modo3x3Ref = useRef<HTMLInputElement>(null);
   const modo4x4Ref = useRef<HTMLInputElement>(null);
   const logsRef = useRef<HTMLDivElement>(null);
-  const uptimeRef = useRef<NodeJS.Timeout | null>(null);
-  const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const uptimeRef = useRef<any>(null);
+  const toastTimeoutRef = useRef<any>(null);
 
   // Toast
   const showToast = useCallback((msg: string, tipo: string) => {
@@ -459,7 +459,7 @@ function App() {
           <textarea ref={tokensRef} rows={3} placeholder="Cole seus tokens aqui (um por linha)"></textarea>
           {tokenError && <div className="error-message">{tokenError}</div>}
 
-          <label>Categorias</label>
+          <label>Categoria</label>
           <div className="orgs-box">
             <label className="org-item">
               <input type="checkbox" ref={catMobileRef} defaultChecked />
@@ -479,23 +479,23 @@ function App() {
             </label>
           </div>
 
-          <label>Modos</label>
+          <label>Modo</label>
           <div className="orgs-box">
             <label className="org-item">
               <input type="checkbox" ref={modo1x1Ref} />
-              <span>1x1</span>
+              <span>1x1 | 1v1</span>
             </label>
             <label className="org-item">
               <input type="checkbox" ref={modo2x2Ref} defaultChecked />
-              <span>2x2</span>
+              <span>2x2 | 2v2</span>
             </label>
             <label className="org-item">
               <input type="checkbox" ref={modo3x3Ref} />
-              <span>3x3</span>
+              <span>3x3 | 3v3</span>
             </label>
             <label className="org-item">
               <input type="checkbox" ref={modo4x4Ref} defaultChecked />
-              <span>4x4</span>
+              <span>4x4 | 4v4</span>
             </label>
           </div>
 

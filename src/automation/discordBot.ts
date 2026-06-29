@@ -1,49 +1,7 @@
 import { addLog } from '../services/logService';
-import { incrementStat, setStat, getStats, resetStats } from '../services/statsService';
+import { incrementStat, setStat, getStats } from '../services/statsService';
 import { getSettings } from '../services/settingsService';
 import { BotConfig } from '../types';
-
-const BUTTON_TREE = {
-  Mobile: {
-    "1x1": [
-      "Gelo normal",
-      "Gel normal",
-      "Gel inf",
-      "Gelo infinito",
-      "Gel infinito",
-      "Normal",
-      "Infinito"
-    ],
-    "2x2": ["Normal", "Full ump xm8"],
-    "3x3": ["Normal", "Full ump xm8"],
-    "4x4": ["Normal", "Full ump xm8"]
-  },
-  Emulador: {
-    "1x1": [
-      "Gelo normal",
-      "Gel normal",
-      "Gel inf",
-      "Gelo infinito",
-      "Gel infinito",
-      "Normal",
-      "Infinito"
-    ],
-    "2x2": ["Normal", "Full ump xm8"],
-    "3x3": ["Normal", "Full ump xm8"],
-    "4x4": ["Normal", "Full ump xm8"]
-  },
-  Misto: {
-    "2x2": ["1 Emu"],
-    "3x3": ["1 Emu", "2 Emu"],
-    "4x4": ["1 Emu", "2 Emu", "3 Emu"]
-  },
-  Tático: {
-    "1x1": ["Mobile", "Emulador"],
-    "2x2": ["Mobile", "Emulador", "Misto"],
-    "3x3": ["Mobile", "Emulador", "Misto"],
-    "4x4": ["Mobile", "Emulador", "Misto"]
-  }
-};
 
 const botInstances: Map<string, {
   client: any;
@@ -52,29 +10,15 @@ const botInstances: Map<string, {
 }> = new Map();
 
 const sentMessagesTracker: Map<string, Set<string>> = new Map();
-const cancelTimers: Map<string, NodeJS.Timeout> = new Map();
-
-// 1. Criar cache global
-const cachedTargets: Map<string, Map<string, {
-  channelId: string;
-  messageId: string;
-  validButtons: any[];
-  modo: string;
-  categoria: string;
-}>> = new Map();
-
-let DiscordClient: any = null;
+const processingChannels: Map<string, Set<string>> = new Map();
 
 async function getDiscordClient() {
-  if (!DiscordClient) {
-    try {
-      const discord = require('discord.js-selfbot-v13');
-      DiscordClient = discord.Client;
-    } catch (err) {
-      throw err;
-    }
+  try {
+    const discord = require('discord.js-selfbot-v13');
+    return discord.Client;
+  } catch (err) {
+    throw err;
   }
-  return DiscordClient;
 }
 
 export function isBotRunning(botId: string): boolean {
@@ -95,7 +39,9 @@ export async function startBot(botId: string): Promise<{ success: boolean; messa
     }
 
     const Client = await getDiscordClient();
-    const client = new Client();
+    const client = new Client({
+        checkUpdate: false
+    });
 
     await client.login(config.token);
 
@@ -109,14 +55,15 @@ export async function startBot(botId: string): Promise<{ success: boolean; messa
 
     botInstances.set(botId, instance);
 
+    // Lógica de Eventos (Extraída do ZIP e adaptada)
     client.on('messageCreate', async (msg: any) => {
       if (!instance.isRunning) return;
-      handleGlobalMessageReaction(botId, msg);
+      handleAutoLogic(botId, msg, config);
     });
 
     client.on('messageUpdate', async (_oldMsg: any, newMsg: any) => {
       if (!instance.isRunning) return;
-      handleGlobalMessageReaction(botId, newMsg);
+      handleAutoLogic(botId, newMsg, config);
     });
 
     client.on('threadCreate', async (thread: any) => {
@@ -125,15 +72,15 @@ export async function startBot(botId: string): Promise<{ success: boolean; messa
       
       setTimeout(async () => {
         try {
-          const msgs = await thread.messages.fetch({ limit: 10 });
+          const msgs = await thread.messages.fetch({ limit: 5 });
           for (const [, msg] of msgs) {
-            handleGlobalMessageReaction(botId, msg);
+            handleAutoLogic(botId, msg, config);
           }
         } catch (e) {}
-      }, 300);
+      }, 500);
     });
     
-    runAutomationLoop(botId, config);
+    runAutomationLoop(botId);
 
     return { success: true, message: `Logado como ${client.user?.username}` };
   } catch (err: any) {
@@ -150,12 +97,19 @@ export async function stopBot(botId: string): Promise<{ success: boolean; messag
   try { instance.client.destroy(); } catch (e) {}
   botInstances.delete(botId);
   sentMessagesTracker.delete(botId);
-  cachedTargets.delete(botId); // Limpar cache ao parar o bot
+  processingChannels.delete(botId);
   addLog(botId, { type: 'warn', message: 'Bot desligado.' });
   return { success: true, message: 'Bot desligado.' };
 }
 
-async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promise<void> {
+// Função auxiliar para limpar nomes (Extraída do ZIP)
+const cleanName = (str: string) =>
+    str.normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^\w-]/g, "")
+    .toLowerCase();
+
+async function runAutomationLoop(botId: string): Promise<void> {
   const instance = botInstances.get(botId);
   if (!instance || !instance.isRunning) return;
 
@@ -166,177 +120,34 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
     incrementStat(botId, 'executions');
     setStat(botId, 'lastExecution', new Date());
 
-    const guilds = client.guilds.cache;
+    const tipoMap: Record<string, string> = { 'Tático': 'tatico', 'Mobile': 'mob', 'Emulador': 'emu', 'Misto': 'mis' };
     
-    if (!cachedTargets.has(botId)) {
-      cachedTargets.set(botId, new Map());
-    }
-    const botCache = cachedTargets.get(botId)!;
-
-    for (const [, guild] of guilds) {
+    for (const [, guild] of client.guilds.cache) {
       if (!instance.isRunning) break;
-      const guildName = guild.name || 'Servidor';
-      let cliquesNoServidor = 0;
 
-      // 3. Verificar se existir usar cache diretamente
-      if (botCache.has(guild.id)) {
-        addLog(botId, { type: 'info', message: `[CACHE] Usando cache do servidor ${guildName}` });
-        const cached = botCache.get(guild.id)!;
-        
-        try {
-          const channel = await client.channels.fetch(cached.channelId);
-          if (!channel) throw new Error('Canal não existe');
-
-          const msg = await (channel as any).messages.fetch(cached.messageId, { force: true });
-          if (!msg || !msg.components?.length) throw new Error('Mensagem ou botões sumiram');
-
-          if (cached.validButtons.length > 0) {
-            const randomButton = cached.validButtons[Math.floor(Math.random() * cached.validButtons.length)];
-            await msg.clickButton(randomButton.customId);
-            addLog(botId, { type: 'success', message: `[CLICK] Botão clicado via cache: "${channel.name}" em "${guildName}"` });
-            cliquesNoServidor++;
-            incrementStat(botId, 'buttonsClicked');
-            await sleep(500);
-          } else {
-            throw new Error('validButtons ficou vazio');
-          }
-        } catch (e: any) {
-          // 4. Fallback: remover cache e refazer scan
-          addLog(botId, { type: 'warn', message: `[RECACHE] Cache inválido, reescanando servidor ${guildName}: ${e.message}` });
-          botCache.delete(guild.id);
-          // O scan será feito na próxima iteração ou logo abaixo se não dermos continue
-        }
-
-        // Se o cache funcionou ou falhou e foi deletado, processamos a mensagem e pulamos para o próximo servidor
-        if (config.message && config.message.trim() !== '' && instance.isRunning) {
-          try {
-            const channel = await client.channels.fetch(cached.channelId);
-            if (channel) {
-              await (channel as any).send(config.message);
-              incrementStat(botId, 'messagesSent');
-              addLog(botId, { type: 'warn', message: `Mensagem enviada via cache em "${(channel as any).name}" de "${guildName}"` });
-            }
-          } catch (e) {}
-        }
-        continue;
-      }
-
-      // 2. Fazer scan apenas uma vez (quando não há cache)
-      addLog(botId, { type: 'info', message: `[SCAN] Guild encontrada: ${guildName}` });
-      let canaisEncontrados: any[] = [];
-
-      // 5. Respeitar apenas o modo selecionado
       for (const modo of config.modes) {
-        const variations = [
-          modo.toLowerCase(),
-          modo.replace('v', 'x').toLowerCase()
-        ];
         for (const categoria of config.categories) {
-          const matchingChannels = guild.channels.cache.filter((c: any) => {
-            if (c.type !== 'GUILD_TEXT' && c.type !== 'GUILD_NEWS') return false;
-            const nome = c.name.toLowerCase();
-            return variations.some(v => nome.includes(v)) &&
-                   nome.includes(categoria.toLowerCase());
+          const tipo = tipoMap[categoria];
+          if (!tipo) continue;
+
+          const variations = [modo.toLowerCase(), modo.replace('v', 'x').toLowerCase()];
+          
+          const canais = guild.channels.cache.filter((c: any) => {
+            if (c.type !== 'GUILD_TEXT') return false;
+            const name = cleanName(c.name);
+            return name.includes(tipo) && variations.some(v => name.includes(v));
           });
-          
-          for (const [, c] of matchingChannels) {
-            addLog(botId, { type: 'info', message: `[SCAN] Canal encontrado: ${c.name}` });
-            canaisEncontrados.push({ channel: c, modo, categoria });
-          }
-        }
-      }
 
-      for (const item of canaisEncontrados) {
-        if (!instance.isRunning || cliquesNoServidor >= 5) break;
-        const { channel, modo, categoria } = item;
-
-        try {
-          const msgs = await (channel as any).messages.fetch({ limit: 10 });
-          addLog(botId, { type: 'info', message: `[SCAN] Mensagens carregadas: ${msgs.size} no canal ${channel.name}` });
-          
-          for (const [, msg] of msgs) {
-            if (!instance.isRunning || cliquesNoServidor >= 5) break;
-            if (!msg.components?.length) continue;
-
-            const categoryData = (BUTTON_TREE as any)[categoria];
-            if (categoryData && categoryData[modo.replace('v', 'x')]) {
-              const optionsToClick = categoryData[modo.replace('v', 'x')];
-              
-              const currentMsg = await (channel as any).messages.fetch(msg.id, { force: true });
-              if (!currentMsg || !currentMsg.components?.length) continue;
-
-              const validButtons: any[] = [];
-              for (const row of currentMsg.components) {
-                for (const button of row.components) {
-                  if (!button.customId) continue;
-                  
-                  const rawLabel = button.label || '';
-                  const label = rawLabel
-                    .toLowerCase()
-                    .normalize('NFD')
-                    .replace(/[\u0300-\u036f]/g, '')
-                    .trim();
-                  
-                  const customId = button.customId.toLowerCase();
-                  const forbidden = ['sair', 'leave', 'cancelar', 'fechar', 'finalizar', 'recusar', 'confirmar'];
-
-                  if (forbidden.some(f => label.includes(f) || customId.includes(f))) continue;
-
-                  for (const option of optionsToClick) {
-                    const normalizedOption = option
-                      .toLowerCase()
-                      .normalize('NFD')
-                      .replace(/[\u0300-\u036f]/g, '')
-                      .trim();
-
-                    if (label.includes(normalizedOption) || customId.includes(normalizedOption)) {
-                      if (!validButtons.some(b => b.customId === button.customId)) {
-                        validButtons.push(button);
-                      }
-                    }
-                  }
-                }
+          for (const [, channel] of canais) {
+            if (!instance.isRunning) break;
+            
+            try {
+              const msgs = await (channel as any).messages.fetch({ limit: 5 });
+              for (const [, msg] of msgs) {
+                await handleAutoLogic(botId, msg, config);
               }
-
-              if (validButtons.length > 0) {
-                // Salvar no cache
-                botCache.set(guild.id, {
-                  channelId: channel.id,
-                  messageId: currentMsg.id,
-                  validButtons,
-                  modo,
-                  categoria
-                });
-                addLog(botId, { type: 'info', message: `[SCAN] Botões válidos cacheados para ${guildName}` });
-
-                try {
-                  const randomButton = validButtons[Math.floor(Math.random() * validButtons.length)];
-                  await currentMsg.clickButton(randomButton.customId);
-                  addLog(botId, { type: 'success', message: `[SUCCESS] Clique inicial executado: "${channel.name}" em "${guildName}"` });
-                  cliquesNoServidor++;
-                  incrementStat(botId, 'buttonsClicked');
-                  await sleep(500);
-                } catch (error) {
-                  addLog(botId, { type: 'error', message: `[ERROR] Falha ao clicar no scan: ${String(error)}` });
-                  botCache.delete(guild.id);
-                }
-                break; // Sai do loop de mensagens para este canal, pois já achamos e cacheamos
-              }
-            }
+            } catch (e) {}
           }
-          if (botCache.has(guild.id)) break; // Se já cacheou algo neste servidor, vai para o próximo
-        } catch (e: any) {}
-      }
-
-      // Enviar mensagem se não estiver no cache (primeira vez)
-      if (config.message && config.message.trim() !== '' && instance.isRunning) {
-        if (canaisEncontrados.length > 0) {
-          const targetChannel = canaisEncontrados[0].channel;
-          try {
-            await targetChannel.send(config.message);
-            incrementStat(botId, 'messagesSent');
-            addLog(botId, { type: 'warn', message: `Mensagem enviada em "${targetChannel.name}" de "${guildName}"` });
-          } catch (e) {}
         }
       }
     }
@@ -347,86 +158,79 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
 
   if (instance && instance.isRunning) {
     const config = await getSettings(botId);
-    const intervalMs = Math.max((config.interval || 2) * 1000, 2000);
-    instance.loopTimeout = setTimeout(() => runAutomationLoop(botId, config), intervalMs);
+    const intervalMs = Math.max((config.interval || 10) * 1000, 5000);
+    instance.loopTimeout = setTimeout(() => runAutomationLoop(botId), intervalMs);
   }
 }
 
-async function handleGlobalMessageReaction(botId: string, msg: any) {
-  const channel = msg.channel;
-  if (!channel || !channel.name) return;
+async function handleAutoLogic(botId: string, msg: any, config: BotConfig) {
+    const instance = botInstances.get(botId);
+    if (!instance || !instance.isRunning) return;
 
-  const keywords = ['aguardando', 'partida', 'fila'];
-  const channelName = channel.name.toLowerCase();
-  
-  if (!keywords.some(kw => channelName.includes(kw))) return;
+    const channel = msg.channel;
+    if (!channel || !channel.name) return;
 
-  const guildName = channel.guild?.name || 'Servidor';
-  const config = await getSettings(botId);
+    // 1. Lógica de Envio Automático de Mensagens (Extraída do ZIP)
+    if (config.message && config.message.trim() !== '') {
+        if (!sentMessagesTracker.has(botId)) sentMessagesTracker.set(botId, new Set());
+        const sentSet = sentMessagesTracker.get(botId)!;
 
-  if (config.message && config.message.trim() !== '') {
-    if (!sentMessagesTracker.has(botId)) sentMessagesTracker.set(botId, new Set());
-    const sentSet = sentMessagesTracker.get(botId)!;
-
-    if (!sentSet.has(channel.id)) {
-      try {
-        channel.send(config.message).then(() => {
-          sentSet.add(channel.id);
-          incrementStat(botId, 'messagesSent');
-          addLog(botId, { type: 'warn', message: `[EVENTO] Mensagem enviada em "${channel.name}" de "${guildName}"` });
-          
-          setTimeout(() => sentSet.delete(channel.id), 60000);
-        }).catch(() => {});
-
-        if (!cancelTimers.has(channel.id)) {
-          const timer = setTimeout(async () => {
+        const keywords = ['aguardando', 'partida', 'fila'];
+        const channelName = channel.name.toLowerCase();
+        
+        if (keywords.some(kw => channelName.includes(kw)) && !sentSet.has(channel.id)) {
             try {
-              const recentMsgs = await channel.messages.fetch({ limit: 10 });
-              const msgToCancel = recentMsgs.find((m: any) => m.components?.length > 0);
-              if (msgToCancel) {
-                for (const row of msgToCancel.components) {
-                  for (const button of row.components) {
-                    const label = (button.label || '').toLowerCase();
-                    const cid = (button.customId || '').toLowerCase();
-                    if (label.includes('cancelar') || cid.includes('cancelar')) {
-                      msgToCancel.clickButton(button.customId).catch(()=>{});
-                      break;
-                    }
-                  }
-                }
-              }
+                await channel.send(config.message);
+                sentSet.add(channel.id);
+                incrementStat(botId, 'messagesSent');
+                addLog(botId, { type: 'success', message: `Mensagem enviada em "${channel.name}"` });
+                setTimeout(() => sentSet.delete(channel.id), 60000);
             } catch (e) {}
-            cancelTimers.delete(channel.id);
-          }, 180000);
-          cancelTimers.set(channel.id, timer);
         }
-      } catch (e) {}
     }
-  }
 
-  if (msg.components?.length) {
+    // 2. Lógica de Cliques em Botões (Extraída do ZIP e adaptada aos requisitos)
+    if (!msg.components || msg.components.length === 0) return;
+
+    if (!processingChannels.has(botId)) processingChannels.set(botId, new Set());
+    const procSet = processingChannels.get(botId)!;
+    if (procSet.has(msg.id)) return;
+
+    const allowedButtons = ["gel normal", "gel inf", "gelo normal", "gelo infinito"];
+    const forbidden = ['sair', 'leave', 'cancelar', 'fechar', 'finalizar', 'recusar'];
+
     for (const row of msg.components) {
-      for (const button of row.components) {
-        if (!button.customId) continue;
-        const label = (button.label || '').toLowerCase();
-        const customId = button.customId.toLowerCase();
-        const forbidden = ['sair', 'leave', 'cancelar', 'fechar', 'finalizar', 'recusar', 'confirmar'];
-        if (forbidden.some(f => label.includes(f) || customId.includes(f))) continue;
+        for (const button of row.components) {
+            const label = (button.label || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+            const customId = (button.customId || '').toLowerCase();
 
-        try {
-          await msg.clickButton(button.customId);
-          incrementStat(botId, 'buttonsClicked');
-          addLog(botId, { type: 'success', message: `[EVENTO] Clique: "${channel.name}" em "${guildName}"` });
-        } catch (e: any) {
-          if (!e.message.includes('Unknown Message') && !e.message.includes('Interaction failed')) {
-            addLog(botId, { type: 'error', message: `Erro no clique global (${guildName}): ${e.message}` });
-          }
+            // Prioridade para os botões solicitados pelo usuário
+            if (allowedButtons.some(b => label.includes(b) || customId.includes(b))) {
+                try {
+                    procSet.add(msg.id);
+                    await msg.clickButton(button.customId);
+                    incrementStat(botId, 'buttonsClicked');
+                    addLog(botId, { type: 'success', message: `Botão "${button.label}" clicado em "${channel.name}"` });
+                    return;
+                } catch (e) {}
+            }
+
+            // Lógica genérica de confirmação (Extraída do ZIP: clica se não for proibido)
+            if (!forbidden.some(f => label.includes(f) || customId.includes(f))) {
+                // Se chegamos aqui, é um botão de ação que não é de cancelamento
+                // Mas vamos focar nos permitidos primeiro. Se o usuário quiser manter a lógica do ZIP:
+                try {
+                    procSet.add(msg.id);
+                    await msg.clickButton(button.customId);
+                    incrementStat(botId, 'buttonsClicked');
+                    addLog(botId, { type: 'success', message: `Botão de ação "${button.label}" clicado em "${channel.name}"` });
+                    return;
+                } catch (e) {}
+            }
         }
-      }
     }
-  }
 }
 
-function sleep(ms: number) {
+async function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }

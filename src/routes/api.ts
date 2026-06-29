@@ -110,7 +110,7 @@ router.post('/save_config', async (req: Request, res: Response) => {
       token,
       message: mensagem || '',
       categories: categories || [],
-      modes: modos || [],
+      modes: (modos || []).map((m: string) => m.split(' | ')[0]),
       interval: interval !== undefined ? parseInt(interval, 10) : 12,
     });
 
