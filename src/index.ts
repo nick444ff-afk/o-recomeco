@@ -19,21 +19,23 @@ app.use('/api', apiRoutes);
 // Caminho do Frontend (Configuração de Sucesso)
 const frontendPath = path.resolve(process.cwd(), 'frontend/dist');
 
-// Servir arquivos estáticos com cache desativado
-app.use(express.static(frontendPath, { etag: false, lastModified: false }));
+// Servir arquivos estáticos da pasta assets explicitamente
+app.use('/assets', express.static(path.join(frontendPath, 'assets'), {
+  setHeaders: (res) => {
+    res.set('Cache-Control', 'public, max-age=31536000');
+  }
+}));
 
-// Fallback para SPA (Configuração de Sucesso)
+// Servir o restante da pasta dist
+app.use(express.static(frontendPath));
+
+// Fallback para SPA
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'API not found' });
   }
   
-  const indexPath = path.join(frontendPath, 'index.html');
-  res.sendFile(indexPath, { etag: false, lastModified: false }, (err) => {
-    if (err) {
-      res.status(500).send("Painel em construção... Atualize em 1 minuto.");
-    }
-  });
+  res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
 async function bootstrap() {
