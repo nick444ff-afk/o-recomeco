@@ -32,7 +32,6 @@ const cleanName = (str: string) =>
     .replace(/[^\w-]/g, "")
     .toLowerCase();
 
-// Lógica de Regex de Valor extraída do ZIP
 const createValorRegex = (valor: number) => {
     const inteiro = Math.floor(valor);
     const decimal = Math.round((valor - inteiro) * 100);
@@ -73,15 +72,24 @@ export async function startBot(botId: string): Promise<{ success: boolean; messa
 
     botInstances.set(botId, instance);
 
-    // Loop de Automação Principal (Inspirado no setInterval do ZIP)
+    // Eventos em tempo real para resposta imediata (Lógica src/events/config/panel.js)
+    client.on('messageCreate', async (msg: any) => {
+        if (!instance.isRunning) return;
+        await handleAutoLogic(botId, instance, msg, config);
+    });
+
+    client.on('messageUpdate', async (_old: any, msg: any) => {
+        if (!instance.isRunning) return;
+        await handleAutoLogic(botId, instance, msg, config);
+    });
+
+    // Ciclo de Varredura (Intervalo configurado)
     instance.loopInterval = setInterval(async () => {
         if (!instance.isRunning) return;
         try {
             await runAutomationCycle(botId, instance, config);
-        } catch (e: any) {
-            console.error(`Erro no ciclo: ${e.message}`);
-        }
-    }, 3000); // Roda a cada 3 segundos
+        } catch (e: any) {}
+    }, 4000);
 
     return { success: true, message: `Logado como ${client.user?.username}` };
   } catch (err: any) {
@@ -92,73 +100,37 @@ export async function startBot(botId: string): Promise<{ success: boolean; messa
 
 async function runAutomationCycle(botId: string, instance: any, config: BotConfig) {
     const client = instance.client;
-    
-    // Atualiza estatísticas
     incrementStat(botId, 'executions');
     setStat(botId, 'lastExecution', new Date());
 
-    // 1. Escaneamento de Canais (Keywords globais do ZIP)
-    const channelsToMonitor = client.channels.cache.filter((c: any) => 
-        c.guild && 
-        (c.type === 'GUILD_TEXT' || c.type === 'GUILD_PRIVATE_THREAD') &&
-        (c.name?.toLowerCase().includes("aguardando") || 
-         c.name?.toLowerCase().includes("partida") || 
-         c.name?.toLowerCase().includes("fila")) &&
-        c.viewable
-    );
-
-    for (const [, channel] of channelsToMonitor) {
-        if (instance.processing.has(channel.id)) continue;
-        
-        // Marca canal como em processamento para evitar conflitos
-        instance.processing.add(channel.id);
-        
-        try {
-            const messages = await (channel as any).messages.fetch({ limit: 5 });
-            const firstMsg = messages.find((m: any) => m.components?.length > 0);
-
-            // A. Envio Automático (Evita mensagens fantasmas com tracker rigoroso)
-            if (config.message && config.message.trim() !== '') {
-                const sentKey = `${channel.id}_${config.message.slice(0, 10)}`;
-                if (!instance.sentMessages.has(sentKey)) {
-                    try {
-                        await (channel as any).send(config.message);
-                        instance.sentMessages.add(sentKey);
-                        incrementStat(botId, 'messagesSent');
-                        addLog(botId, { type: 'success', message: `Mensagem enviada em "${channel.name}"` });
-                        
-                        // Limpa o tracker após 2 minutos para permitir re-envio se necessário
-                        setTimeout(() => instance.sentMessages.delete(sentKey), 120000);
-                    } catch (err: any) {
-                        if (err.message.includes('Missing Permissions')) {
-                            addLog(botId, { type: 'error', message: `Sem permissão para enviar em "${channel.name}"` });
-                        }
-                    }
-                }
-            }
-
-            // B. Lógica de Cliques (Focada nos requisitos e lógica do ZIP)
-            if (firstMsg) {
-                await handleButtonClicks(botId, instance, firstMsg, channel, config);
-            }
-
-        } catch (e) {} finally {
-            // Libera o canal após processar
-            setTimeout(() => instance.processing.delete(channel.id), 5000);
-        }
-    }
-
-    // 2. Escaneamento Específico por Categoria/Modo (Lógica de Scan do ZIP)
+    const keywords = ["aguardando", "partida", "fila"];
     const tipoMap: Record<string, string> = { 'Tático': 'tatico', 'Mobile': 'mob', 'Emulador': 'emu', 'Misto': 'mis' };
     const valorRegex = createValorRegex(config.value || 0);
 
+    // Monitoramento global de canais de fila
+    const monitoredChannels = client.channels.cache.filter((c: any) => 
+        c.guild && 
+        (c.type === 'GUILD_TEXT' || c.type === 'GUILD_PRIVATE_THREAD') &&
+        keywords.some(kw => c.name?.toLowerCase().includes(kw)) &&
+        c.viewable
+    );
+
+    for (const [, channel] of monitoredChannels) {
+        try {
+            const messages = await (channel as any).messages.fetch({ limit: 5 });
+            for (const [, msg] of messages) {
+                await handleAutoLogic(botId, instance, msg, config);
+            }
+        } catch (e) {}
+    }
+
+    // Varredura específica por Categoria/Modo/Valor
     for (const categoria of config.categories) {
         const tipo = tipoMap[categoria];
         if (!tipo) continue;
 
         for (const modo of config.modes) {
             const variations = [modo.toLowerCase(), modo.replace('v', 'x').toLowerCase()];
-            
             const specificChannels = client.channels.cache.filter((c: any) => {
                 if (c.type !== 'GUILD_TEXT') return false;
                 const name = cleanName(c.name);
@@ -169,15 +141,13 @@ async function runAutomationCycle(botId: string, instance: any, config: BotConfi
                 try {
                     const msgs = await (channel as any).messages.fetch({ limit: 10 });
                     for (const [, msg] of msgs) {
-                        // Verifica se a mensagem tem o valor configurado e botões
                         let fullText = msg.content || "";
                         for (const embed of msg.embeds) {
                             fullText += ` ${embed.title || ""} ${embed.description || ""}`;
                             if (embed.fields?.length) fullText += " " + embed.fields.map((f: any) => `${f.name}: ${f.value}`).join(" ");
                         }
-
                         if (valorRegex.test(fullText) && msg.components?.length) {
-                            await handleButtonClicks(botId, instance, msg, channel, config);
+                            await handleAutoLogic(botId, instance, msg, config);
                         }
                     }
                 } catch (e) {}
@@ -186,14 +156,36 @@ async function runAutomationCycle(botId: string, instance: any, config: BotConfi
     }
 }
 
-async function handleButtonClicks(botId: string, instance: any, msg: any, channel: any, config: BotConfig) {
+async function handleAutoLogic(botId: string, instance: any, msg: any, config: BotConfig) {
+    const channel = msg.channel;
+    if (!channel || !channel.name) return;
+
+    // 1. Envio Automático (Tracker por canal)
+    if (config.message && config.message.trim() !== '') {
+        const keywords = ['aguardando', 'partida', 'fila'];
+        if (keywords.some(kw => channel.name.toLowerCase().includes(kw))) {
+            const sentKey = `msg_${channel.id}`;
+            if (!instance.sentMessages.has(sentKey)) {
+                try {
+                    await channel.send(config.message);
+                    instance.sentMessages.add(sentKey);
+                    incrementStat(botId, 'messagesSent');
+                    addLog(botId, { type: 'success', message: `Mensagem enviada em "${channel.name}"` });
+                    setTimeout(() => instance.sentMessages.delete(sentKey), 120000);
+                } catch (e) {}
+            }
+        }
+    }
+
+    // 2. Lógica de Cliques (Fiel ao ZIP src/events/config/panel.js)
+    if (!msg.components || msg.components.length === 0) return;
     if (instance.clickedMessages.has(msg.id)) return;
 
     const allowedPriority = ["gel normal", "gel inf", "gelo normal", "gelo infinito"];
     const forbidden = ['sair', 'leave', 'cancelar', 'fechar', 'finalizar', 'recusar'];
 
     for (const row of msg.components) {
-        // Primeiro tenta os botões de prioridade solicitados
+        // Tenta botões prioritários
         for (const button of row.components) {
             const label = (button.label || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
             const customId = (button.customId || '').toLowerCase();
@@ -205,13 +197,11 @@ async function handleButtonClicks(botId: string, instance: any, msg: any, channe
                     incrementStat(botId, 'buttonsClicked');
                     addLog(botId, { type: 'success', message: `Botão PRIORITÁRIO "${button.label}" clicado em "${channel.name}"` });
                     return;
-                } catch (err: any) {
-                    handleClickError(botId, err, channel.name);
-                }
+                } catch (e) {}
             }
         }
 
-        // Se não achou prioridade, tenta qualquer botão de ação (lógica do ZIP)
+        // Tenta qualquer botão de ação (Lógica de Confirmação Automática do ZIP)
         for (const button of row.components) {
             const label = (button.label || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
             const customId = (button.customId || '').toLowerCase();
@@ -223,30 +213,18 @@ async function handleButtonClicks(botId: string, instance: any, msg: any, channe
                     incrementStat(botId, 'buttonsClicked');
                     addLog(botId, { type: 'success', message: `Botão de ação "${button.label}" clicado em "${channel.name}"` });
                     return;
-                } catch (err: any) {
-                    handleClickError(botId, err, channel.name);
-                }
+                } catch (e) {}
             }
         }
     }
 }
 
-function handleClickError(botId: string, err: any, channelName: string) {
-    if (err.message.includes('Missing Permissions')) {
-        addLog(botId, { type: 'error', message: `Sem permissão para clicar em "${channelName}"` });
-    } else {
-        addLog(botId, { type: 'error', message: `Erro ao clicar: ${err.message}` });
-    }
-}
-
 export async function stopBot(botId: string): Promise<{ success: boolean; message: string }> {
   const instance = botInstances.get(botId);
-  if (!instance) return { success: false, message: 'Bot não está em execução.' };
-  
+  if (!instance) return { success: false, message: 'Bot parado.' };
   instance.isRunning = false;
   if (instance.loopInterval) clearInterval(instance.loopInterval);
   try { instance.client.destroy(); } catch (e) {}
-  
   botInstances.delete(botId);
   addLog(botId, { type: 'warn', message: 'Bot desligado.' });
   return { success: true, message: 'Bot desligado.' };
