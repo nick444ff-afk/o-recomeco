@@ -32,15 +32,12 @@ const cleanName = (str: string) =>
     .replace(/[^\w-]/g, "")
     .toLowerCase();
 
-const createValorRegex = (valor: number) => {
-    const inteiro = Math.floor(valor);
-    const decimal = Math.round((valor - inteiro) * 100);
-    const decPart = decimal ? `[.,]?${decimal}` : "(?:[.,]?\\d{2})?";
-    return new RegExp(
-        `(?:r\\$|rs)\\s*${inteiro}${decPart}` +
-        `|(?:r\\$|rs)?\\s*\\d+(?:[.,]?\\d{2})?\\s*/\\s*(?:r\\$|rs)?\\s*${inteiro}`,
-        "i"
-    );
+// Keywords de Categoria extraídas do novo ZIP
+const CATEGORY_KEYWORDS: Record<string, string[]> = {
+    mobile: ["mobile", "mob", "celular", "📱"],
+    emulador: ["emulador", "emu", "emul", "🖥️", "🖥"],
+    misto: ["misto", "mis", "mix", "🕹️", "🕹"],
+    tatico: ["tatico", "tático", "tat", "❗"]
 };
 
 export async function startBot(botId: string): Promise<{ success: boolean; message: string }> {
@@ -72,7 +69,7 @@ export async function startBot(botId: string): Promise<{ success: boolean; messa
 
     botInstances.set(botId, instance);
 
-    // Eventos em tempo real para resposta imediata (Lógica src/events/config/panel.js)
+    // Eventos em tempo real (Resposta imediata do ZIP)
     client.on('messageCreate', async (msg: any) => {
         if (!instance.isRunning) return;
         await handleAutoLogic(botId, instance, msg, config);
@@ -83,13 +80,13 @@ export async function startBot(botId: string): Promise<{ success: boolean; messa
         await handleAutoLogic(botId, instance, msg, config);
     });
 
-    // Ciclo de Varredura (Intervalo configurado)
+    // Ciclo de Varredura (A cada 3 segundos - Lógica aprimorada do novo ZIP)
     instance.loopInterval = setInterval(async () => {
         if (!instance.isRunning) return;
         try {
             await runAutomationCycle(botId, instance, config);
         } catch (e: any) {}
-    }, 4000);
+    }, 3000);
 
     return { success: true, message: `Logado como ${client.user?.username}` };
   } catch (err: any) {
@@ -104,10 +101,35 @@ async function runAutomationCycle(botId: string, instance: any, config: BotConfi
     setStat(botId, 'lastExecution', new Date());
 
     const keywords = ["aguardando", "partida", "fila"];
-    const tipoMap: Record<string, string> = { 'Tático': 'tatico', 'Mobile': 'mob', 'Emulador': 'emu', 'Misto': 'mis' };
-    const valorRegex = createValorRegex(config.value || 0);
+    const tipoMap: Record<string, string> = { 'Tático': 'tatico', 'Mobile': 'mobile', 'Emulador': 'emulador', 'Misto': 'misto' };
 
-    // Monitoramento global de canais de fila
+    // 1. Varredura por Categoria/Modo (Fiel ao findCorrectButton do novo ZIP)
+    for (const categoria of config.categories) {
+        const catKey = tipoMap[categoria];
+        if (!catKey) continue;
+
+        for (const modo of config.modes) {
+            const variations = [modo.toLowerCase(), modo.replace('v', 'x').toLowerCase()];
+            const specificChannels = client.channels.cache.filter((c: any) => {
+                if (c.type !== 'GUILD_TEXT') return false;
+                const name = cleanName(c.name);
+                // Busca canais que tenham o modo (1x1) e a categoria (mob/emu...)
+                return variations.some(v => name.includes(v)) && 
+                       CATEGORY_KEYWORDS[catKey].some(kw => name.includes(kw.replace(/[^\w]/g, '')));
+            });
+
+            for (const [, channel] of specificChannels) {
+                try {
+                    const msgs = await (channel as any).messages.fetch({ limit: 10 });
+                    for (const [, msg] of msgs) {
+                        await handleAutoLogic(botId, instance, msg, config, catKey);
+                    }
+                } catch (e) {}
+            }
+        }
+    }
+
+    // 2. Monitoramento Global (Canais de Fila/Partida)
     const monitoredChannels = client.channels.cache.filter((c: any) => 
         c.guild && 
         (c.type === 'GUILD_TEXT' || c.type === 'GUILD_PRIVATE_THREAD') &&
@@ -123,44 +145,13 @@ async function runAutomationCycle(botId: string, instance: any, config: BotConfi
             }
         } catch (e) {}
     }
-
-    // Varredura específica por Categoria/Modo/Valor
-    for (const categoria of config.categories) {
-        const tipo = tipoMap[categoria];
-        if (!tipo) continue;
-
-        for (const modo of config.modes) {
-            const variations = [modo.toLowerCase(), modo.replace('v', 'x').toLowerCase()];
-            const specificChannels = client.channels.cache.filter((c: any) => {
-                if (c.type !== 'GUILD_TEXT') return false;
-                const name = cleanName(c.name);
-                return name.includes(tipo) && variations.some(v => name.includes(v));
-            });
-
-            for (const [, channel] of specificChannels) {
-                try {
-                    const msgs = await (channel as any).messages.fetch({ limit: 10 });
-                    for (const [, msg] of msgs) {
-                        let fullText = msg.content || "";
-                        for (const embed of msg.embeds) {
-                            fullText += ` ${embed.title || ""} ${embed.description || ""}`;
-                            if (embed.fields?.length) fullText += " " + embed.fields.map((f: any) => `${f.name}: ${f.value}`).join(" ");
-                        }
-                        if (valorRegex.test(fullText) && msg.components?.length) {
-                            await handleAutoLogic(botId, instance, msg, config);
-                        }
-                    }
-                } catch (e) {}
-            }
-        }
-    }
 }
 
-async function handleAutoLogic(botId: string, instance: any, msg: any, config: BotConfig) {
+async function handleAutoLogic(botId: string, instance: any, msg: any, config: BotConfig, forceCategory?: string) {
     const channel = msg.channel;
     if (!channel || !channel.name) return;
 
-    // 1. Envio Automático (Tracker por canal)
+    // A. Mensagem Automática (Tracker Rigoroso)
     if (config.message && config.message.trim() !== '') {
         const keywords = ['aguardando', 'partida', 'fila'];
         if (keywords.some(kw => channel.name.toLowerCase().includes(kw))) {
@@ -177,45 +168,61 @@ async function handleAutoLogic(botId: string, instance: any, msg: any, config: B
         }
     }
 
-    // 2. Lógica de Cliques (Fiel ao ZIP src/events/config/panel.js)
+    // B. Lógica de Cliques (Inspirada no novo ZIP)
     if (!msg.components || msg.components.length === 0) return;
     if (instance.clickedMessages.has(msg.id)) return;
 
-    const allowedPriority = ["gel normal", "gel inf", "gelo normal", "gelo infinito"];
-    const forbidden = ['sair', 'leave', 'cancelar', 'fechar', 'finalizar', 'recusar'];
+    const allowedGelo = ["gel normal", "gel inf", "gelo normal", "gelo infinito"];
+    const forbidden = ['sair', 'leave', 'cancelar', 'fechar', 'finalizar', 'recusar', 'leave_player'];
 
+    // Coletar todos os botões
+    const allButtons: any[] = [];
     for (const row of msg.components) {
-        // Tenta botões prioritários
-        for (const button of row.components) {
-            const label = (button.label || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-            const customId = (button.customId || '').toLowerCase();
+        for (const btn of row.components) {
+            if (btn.customId) allButtons.push(btn);
+        }
+    }
 
-            if (allowedPriority.some(b => label.includes(b) || customId.includes(b))) {
-                try {
-                    await msg.clickButton(button.customId);
-                    instance.clickedMessages.add(msg.id);
-                    incrementStat(botId, 'buttonsClicked');
-                    addLog(botId, { type: 'success', message: `Botão PRIORITÁRIO "${button.label}" clicado em "${channel.name}"` });
-                    return;
-                } catch (e) {}
+    // 1. Prioridade: Botões de Gelo solicitados pelo usuário
+    for (const btn of allButtons) {
+        const label = (btn.label || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+        const customId = (btn.customId || '').toLowerCase();
+        if (allowedGelo.some(g => label.includes(g) || customId.includes(g))) {
+            return await executeClick(botId, instance, msg, btn, channel.name, "PRIORIDADE GELO");
+        }
+    }
+
+    // 2. Prioridade: Botão da Categoria (Lógica findCorrectButton do novo ZIP)
+    if (forceCategory && CATEGORY_KEYWORDS[forceCategory]) {
+        const keywords = CATEGORY_KEYWORDS[forceCategory];
+        for (const btn of allButtons) {
+            const searchText = `${btn.customId} ${btn.label || ""} ${btn.emoji?.name || ""}`.toLowerCase();
+            if (keywords.some(kw => searchText.includes(kw.toLowerCase()))) {
+                return await executeClick(botId, instance, msg, btn, channel.name, `CATEGORIA ${forceCategory.toUpperCase()}`);
             }
         }
+    }
 
-        // Tenta qualquer botão de ação (Lógica de Confirmação Automática do ZIP)
-        for (const button of row.components) {
-            const label = (button.label || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-            const customId = (button.customId || '').toLowerCase();
-
-            if (!forbidden.some(f => label.includes(f) || customId.includes(f))) {
-                try {
-                    await msg.clickButton(button.customId);
-                    instance.clickedMessages.add(msg.id);
-                    incrementStat(botId, 'buttonsClicked');
-                    addLog(botId, { type: 'success', message: `Botão de ação "${button.label}" clicado em "${channel.name}"` });
-                    return;
-                } catch (e) {}
-            }
+    // 3. Fallback: Qualquer botão de ação válido (Lógica genérica do ZIP)
+    for (const btn of allButtons) {
+        const label = (btn.label || '').toLowerCase();
+        const customId = btn.customId.toLowerCase();
+        if (!forbidden.some(f => label.includes(f) || customId.includes(f))) {
+            return await executeClick(botId, instance, msg, btn, channel.name, "AÇÃO GENÉRICA");
         }
+    }
+}
+
+async function executeClick(botId: string, instance: any, msg: any, button: any, channelName: string, typeLabel: string) {
+    try {
+        await msg.clickButton(button.customId);
+        instance.clickedMessages.add(msg.id);
+        incrementStat(botId, 'buttonsClicked');
+        addLog(botId, { type: 'success', message: `[${typeLabel}] Botão "${button.label || button.customId}" clicado em "${channelName}"` });
+        return true;
+    } catch (e: any) {
+        addLog(botId, { type: 'error', message: `Erro ao clicar em "${channelName}": ${e.message}` });
+        return false;
     }
 }
 
