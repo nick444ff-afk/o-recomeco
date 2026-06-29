@@ -5,6 +5,7 @@ export interface BotConfig {
   interval: number;
   categories: string[];
   modes: string[];
+  value?: number;
   isRunning: boolean;
 }
 
