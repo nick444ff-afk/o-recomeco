@@ -3,9 +3,13 @@ export interface BotConfig {
   token: string;
   message: string;
   interval: number;
-  categories: string[];
-  modes: string[];
-  value?: number;
+  selections: {
+    [category: string]: {
+      [mode: string]: {
+        [gelo: string]: boolean;
+      };
+    };
+  };
   isRunning: boolean;
 }
 

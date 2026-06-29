@@ -108,9 +108,8 @@ router.post('/save_config', async (req: Request, res: Response) => {
 
     const config = await saveSettings(bot_id, {
       token,
-      message: mensagem || '',
-      categories: categories || [],
-      modes: (modos || []).map((m: string) => m.split(' | ')[0]),
+      message: req.body.message || mensagem || '',
+      selections: req.body.selections,
       interval: interval !== undefined ? parseInt(interval, 10) : 12,
     });
 
