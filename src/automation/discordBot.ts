@@ -180,6 +180,7 @@ async function executeClick(botId: string, instance: any, msg: any, button: any,
     try {
         await msg.clickButton(button.customId);
         instance.clickedMessages.add(msg.id);
+    setTimeout(() => instance.clickedMessages.delete(msg.id), 600000); // 10 minutos de cache
         incrementStat(botId, 'buttonsClicked');
         addLog(botId, { type: 'success', message: `[${type}] Clicado "${button.label || button.customId}" em #${channelName}` });
         return true;

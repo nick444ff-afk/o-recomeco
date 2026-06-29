@@ -25,7 +25,7 @@ router.get('/status/:botId', (req: Request, res: Response) => {
     is_running: running,
     status: running ? 'Rodando' : 'Parado',
     stats: {
-      entradas: stats.entradas,
+      entradas: stats.buttonsClicked,
       na_fila: stats.buttonsClicked,
       partidas: stats.executions,
       dms: stats.messagesSent,
