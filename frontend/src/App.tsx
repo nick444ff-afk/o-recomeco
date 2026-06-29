@@ -67,7 +67,6 @@ function App() {
     });
   }, []);
 
-  // Verificar conexão
   useEffect(() => {
     const check = async () => {
       try {
@@ -82,7 +81,6 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Atualizar status do bot
   useEffect(() => {
     const check = async () => {
       try {
@@ -103,7 +101,6 @@ function App() {
     return () => clearInterval(interval);
   }, [botAtivo]);
 
-  // Fetch logs
   useEffect(() => {
     const fetch = async () => {
       try {
@@ -119,7 +116,6 @@ function App() {
     return () => clearInterval(interval);
   }, [botAtivo, addLog]);
 
-  // Uptime counter
   useEffect(() => {
     if (botLigado) {
       if (!uptimeRef.current) {
@@ -139,14 +135,12 @@ function App() {
     };
   }, [botLigado]);
 
-  // Auto-scroll logs
   useEffect(() => {
     if (logsRef.current) {
       logsRef.current.scrollTop = logsRef.current.scrollHeight;
     }
   }, [logs]);
 
-  // Carregar configuração inicial
   useEffect(() => {
     const load = async () => {
       try {
@@ -265,109 +259,115 @@ function App() {
   };
 
   return (
-    <div className="systemx-app">
-      <style>{appStyles}</style>
-      <div className="container">
+    <div style={styles.app}>
+      <div style={styles.container}>
         {/* HEADER */}
-        <div className="card header">
-          <div className="logo">
-            <img src="https://i.imgur.com/llnJtbZ.png" alt="Logo" />
-          </div>
-          <h1 className="title">SystemX</h1>
-          <p className="subtitle">PAINEL DE CONTROLE</p>
-
-          <div className="status">
-            <div className={`badge ${conexao ? 'badge-green' : 'badge-red'}`}>
-              {conexao ? 'Conectado' : 'Desconectado'}
-            </div>
-            <div className={`badge ${botLigado ? 'badge-green' : 'badge-red'}`}>
-              {botLigado ? 'Ativo' : 'Parado'}
-            </div>
+        <div style={styles.card}>
+          <div style={styles.header}>
+            <h1 style={styles.title}>SystemX</h1>
+            <p style={styles.subtitle}>PAINEL DE CONTROLE</p>
           </div>
 
-          <div className="bot-tabs">
+          <div style={styles.status}>
+            <span style={{ ...styles.badge, background: conexao ? '#10b981' : '#ef4444' }}>
+              {conexao ? '✓ Conectado' : '✗ Desconectado'}
+            </span>
+            <span style={{ ...styles.badge, background: botLigado ? '#10b981' : '#ef4444' }}>
+              {botLigado ? '✓ Ativo' : '✗ Parado'}
+            </span>
+          </div>
+
+          <div style={styles.botTabs}>
             {['BOT1', 'BOT2', 'BOT3'].map(b => (
-              <div key={b} className={botAtivo === b ? 'active' : ''} onClick={() => mudarBot(b)}>{b}</div>
+              <button
+                key={b}
+                onClick={() => mudarBot(b)}
+                style={{
+                  ...styles.botTab,
+                  background: botAtivo === b ? '#e5e7eb' : 'transparent',
+                  color: botAtivo === b ? '#000' : '#fff'
+                }}
+              >
+                {b}
+              </button>
             ))}
           </div>
 
-          <p className="instancia-text">INSTÂNCIA ATIVA: {botAtivo}</p>
+          <p style={styles.instanciaText}>INSTÂNCIA: {botAtivo}</p>
         </div>
 
         {/* CONTROLE */}
-        <div className={`card ${botLigado ? 'bot-ligado' : ''}`}>
-          <div className="controle-header">
-            <h3>Controle - {botAtivo.replace('BOT', 'Bot ')}</h3>
-            <span className="bot-indicator">{botAtivo}</span>
-          </div>
-
-          <div className="play-wrapper">
-            <div className={`play ${botLigado ? 'ligado' : ''}`} onClick={toggleBot}>
-              {!botLigado && <div className="icon-play"></div>}
-              {botLigado && <div className="icon-stop"></div>}
-            </div>
-            <p className={`play-label ${botLigado ? 'ligado' : ''}`}>
-              {botLigado ? `${botAtivo} em execução...` : 'Clique para iniciar o bot'}
-            </p>
-          </div>
+        <div style={styles.card}>
+          <h3 style={styles.cardTitle}>Controle</h3>
+          <button
+            onClick={toggleBot}
+            style={{
+              ...styles.playButton,
+              borderColor: botLigado ? '#ef4444' : '#fff',
+              background: botLigado ? 'rgba(239, 68, 68, 0.1)' : 'rgba(255, 255, 255, 0.03)'
+            }}
+          >
+            {botLigado ? '⏹' : '▶'}
+          </button>
+          <p style={styles.playLabel}>{botLigado ? `${botAtivo} em execução...` : 'Clique para iniciar'}</p>
         </div>
 
         {/* STATS */}
-        <div className="card stat">
-          <div className="stat-title">Entradas</div>
-          <div className="stat-value">{stats.entradas}</div>
-        </div>
-        <div className="card stat">
-          <div className="stat-title">Na Fila</div>
-          <div className="stat-value green-text">{stats.na_fila}</div>
-        </div>
-        <div className="card stat">
-          <div className="stat-title">Partidas</div>
-          <div className="stat-value purple-text">{stats.partidas}</div>
-        </div>
-        <div className="card stat">
-          <div className="stat-title">DMs</div>
-          <div className="stat-value cyan-text">{stats.dms}</div>
-        </div>
-        <div className="card stat">
-          <div className="stat-title">Uptime</div>
-          <div className="stat-value yellow-text">{formatUptime()}</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+          <div style={styles.stat}>
+            <div style={styles.statTitle}>Entradas</div>
+            <div style={styles.statValue}>{stats.entradas}</div>
+          </div>
+          <div style={styles.stat}>
+            <div style={styles.statTitle}>Na Fila</div>
+            <div style={{ ...styles.statValue, color: '#22c55e' }}>{stats.na_fila}</div>
+          </div>
+          <div style={styles.stat}>
+            <div style={styles.statTitle}>Partidas</div>
+            <div style={{ ...styles.statValue, color: '#a855f7' }}>{stats.partidas}</div>
+          </div>
+          <div style={styles.stat}>
+            <div style={styles.statTitle}>DMs</div>
+            <div style={{ ...styles.statValue, color: '#06b6d4' }}>{stats.dms}</div>
+          </div>
+          <div style={styles.stat}>
+            <div style={styles.statTitle}>Uptime</div>
+            <div style={{ ...styles.statValue, color: '#facc15' }}>{formatUptime()}</div>
+          </div>
         </div>
 
-        {/* RESET */}
-        <div className="reset-container">
-          <button className="reset-btn" onClick={resetStats}>RESETAR STATS</button>
-        </div>
+        <button onClick={resetStats} style={styles.resetBtn}>RESETAR STATS</button>
 
         {/* CONFIGURAÇÃO */}
-        <div className="card">
-          <h3>Configuração</h3>
+        <div style={styles.card}>
+          <h3 style={styles.cardTitle}>Configuração</h3>
 
-          <label>Tokens</label>
-          <textarea ref={tokensRef} rows={3} placeholder="Cole seus tokens aqui (um por linha)"></textarea>
-          {tokenError && <div className="error-message">{tokenError}</div>}
+          <label style={styles.label}>Tokens</label>
+          <textarea ref={tokensRef} rows={3} placeholder="Cole seus tokens aqui" style={styles.input} />
+          {tokenError && <div style={styles.errorMsg}>{tokenError}</div>}
 
-          <label>Mensagem Automática</label>
-          <input type="text" ref={mensagemRef} placeholder="Mensagem para enviar na fila" />
+          <label style={styles.label}>Mensagem Automática</label>
+          <input type="text" ref={mensagemRef} placeholder="Mensagem para enviar" style={styles.input} />
 
-          <label>Intervalo de Scan (segundos)</label>
-          <input type="number" ref={intervalRef} defaultValue={12} min={2} max={60} />
+          <label style={styles.label}>Intervalo de Scan (segundos)</label>
+          <input type="number" ref={intervalRef} defaultValue={12} min={2} max={60} style={styles.input} />
 
-          <label>Seleção de Alvos (Cascata)</label>
-          <div className="cascata-container">
+          <label style={styles.label}>Seleção de Alvos</label>
+          <div style={styles.cascata}>
             {CATEGORIES.map(cat => (
-              <div key={cat} className="cat-group">
-                <div className="cat-header">{cat}</div>
-                <div className="modes-grid">
+              <div key={cat} style={styles.catGroup}>
+                <div style={styles.catHeader}>{cat}</div>
+                <div style={styles.modesGrid}>
                   {MODES.map(mod => (
-                    <div key={mod} className="mod-column">
-                      <div className="mod-header">{mod}</div>
+                    <div key={mod}>
+                      <div style={styles.modHeader}>{mod}</div>
                       {GELOS.map(gel => (
-                        <label key={gel} className="checkbox-item">
-                          <input 
-                            type="checkbox" 
-                            checked={selections[cat][mod][gel]} 
+                        <label key={gel} style={styles.checkboxLabel}>
+                          <input
+                            type="checkbox"
+                            checked={selections[cat][mod][gel]}
                             onChange={() => handleCheckboxChange(cat, mod, gel)}
+                            style={styles.checkbox}
                           />
                           <span>{gel}</span>
                         </label>
@@ -379,134 +379,278 @@ function App() {
             ))}
           </div>
 
-          <button className="save-btn" onClick={salvarConfiguracao} disabled={isSaving}>
+          <button onClick={salvarConfiguracao} disabled={isSaving} style={styles.saveBtn}>
             {isSaving ? 'SALVANDO...' : 'SALVAR CONFIGURAÇÃO'}
           </button>
-          {configMessage && <div className="success-message">{configMessage}</div>}
+          {configMessage && <div style={styles.successMsg}>{configMessage}</div>}
         </div>
 
         {/* LOGS */}
-        <div className="card">
-          <h3>Logs</h3>
-          <div className="logs" ref={logsRef}>
+        <div style={styles.card}>
+          <h3 style={styles.cardTitle}>Logs</h3>
+          <div ref={logsRef} style={styles.logs}>
             {logs.map((log, i) => (
-              <div key={i} className="log-entry">
-                <span className={`log-${log.type}`}>{log.message}</span>
+              <div key={i} style={{ color: log.type === 'success' ? '#22c55e' : log.type === 'error' ? '#f87171' : log.type === 'warn' ? '#facc15' : '#22d3ee' }}>
+                {log.message}
               </div>
             ))}
           </div>
-          <button className="clear-logs-btn" onClick={limparLogs} style={{ marginTop: '12px', width: '100%' }}>
-            LIMPAR LOGS
-          </button>
+          <button onClick={limparLogs} style={{ ...styles.resetBtn, marginTop: '12px' }}>LIMPAR LOGS</button>
         </div>
       </div>
 
       {/* TOAST */}
-      <div className={`toast ${toast.visible ? 'show' : ''} ${toast.type}`}>
-        {toast.msg}
-      </div>
+      {toast.visible && (
+        <div style={{
+          ...styles.toast,
+          background: toast.type === 'success' ? '#16a34a' : toast.type === 'error' ? '#dc2626' : '#1d4ed8',
+          opacity: toast.visible ? 1 : 0,
+          transform: toast.visible ? 'translateY(0)' : 'translateY(80px)'
+        }}>
+          {toast.msg}
+        </div>
+      )}
     </div>
   );
 }
 
-const appStyles = `
-.systemx-app {
-  margin: 0;
-  font-family: 'Segoe UI', sans-serif;
-  background: linear-gradient(180deg, #050c1f, #0b1f47);
-  color: #e5e7eb;
-  min-height: 100vh;
-}
-.container {
-  max-width: 500px;
-  margin: auto;
-  padding: 15px;
-}
-.card {
-  background: linear-gradient(145deg, #0b1f47, #08142e);
-  border-radius: 22px;
-  padding: 20px;
-  margin-bottom: 20px;
-  border: 1px solid rgba(255,255,255,0.06);
-  box-shadow: 0 10px 40px rgba(0,0,0,0.6), inset 0 0 40px rgba(0,0,0,0.5);
-}
-.card.bot-ligado {
-  border-color: rgba(239, 68, 68, 0.45);
-  box-shadow: 0 10px 40px rgba(239,68,68,0.25), inset 0 0 40px rgba(0,0,0,0.5);
-}
-.header { text-align: center; }
-.logo { width: 80px; height: 80px; margin: 0 auto 20px; border-radius: 22px; background: linear-gradient(145deg, #1e3a8a, #1d4ed8); display: flex; align-items: center; justify-content: center; overflow: hidden; box-shadow: 0 0 25px rgba(59,130,246,0.4); }
-.logo img { width: 100%; height: 100%; object-fit: cover; }
-.title { font-size: 26px; font-weight: 700; letter-spacing: 4px; }
-.subtitle { opacity: 0.6; font-size: 13px; margin-top: 5px; }
-.status { display: flex; justify-content: center; gap: 10px; margin-top: 15px; }
-.badge { padding: 8px 16px; border-radius: 20px; font-size: 13px; font-weight: 600; }
-.badge-green { background: rgba(16,185,129,0.15); color: #34d399; border: 1px solid rgba(16,185,129,0.3); }
-.badge-red { background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
-.bot-tabs { display: flex; background: #091a36; border-radius: 30px; padding: 6px; margin-top: 15px; }
-.bot-tabs div { flex: 1; text-align: center; padding: 10px; border-radius: 20px; cursor: pointer; transition: all 0.3s ease; font-weight: 600; user-select: none; }
-.bot-tabs div:hover:not(.active) { background: rgba(255,255,255,0.07); }
-.bot-tabs .active { background: #e5e7eb; color: #000; box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
-.play-wrapper { display: flex; flex-direction: column; align-items: center; margin: 30px 0 10px; }
-.play { width: 140px; height: 140px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.7); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.35s ease; position: relative; background: rgba(255,255,255,0.03); user-select: none; }
-.play:hover { transform: scale(1.06); box-shadow: 0 0 30px rgba(255,255,255,0.2); }
-.play:active { transform: scale(0.97); }
-.play .icon-play { width: 0; height: 0; border-left: 32px solid #fff; border-top: 20px solid transparent; border-bottom: 20px solid transparent; margin-left: 8px; }
-.play .icon-stop { width: 26px; height: 26px; background: #ef4444; border-radius: 4px; animation: blink 1.2s infinite; }
-.play.ligado { border-color: #ef4444; box-shadow: 0 0 35px rgba(239,68,68,0.5), 0 0 60px rgba(239,68,68,0.2); background: rgba(239,68,68,0.08); }
-.play.ligado:hover { box-shadow: 0 0 45px rgba(239,68,68,0.65), 0 0 70px rgba(239,68,68,0.25); }
-@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-.play-label { margin-top: 14px; font-size: 13px; opacity: 0.65; text-align: center; transition: color 0.3s; letter-spacing: 0.5px; }
-.play-label.ligado { color: #f87171; opacity: 1; font-weight: 600; }
-.card.stat { padding: 18px 20px; display: flex; justify-content: space-between; align-items: center; }
-.stat-title { font-size: 14px; opacity: 0.65; font-weight: 500; }
-.stat-value { font-size: 22px; font-weight: 700; letter-spacing: 1px; }
-.green-text { color: #22c55e; }
-.purple-text { color: #a855f7; }
-.cyan-text { color: #06b6d4; }
-.yellow-text { color: #facc15; }
-.reset-container { margin: 0 0 20px; padding: 0; }
-.reset-btn { width: 100%; padding: 14px; border-radius: 14px; border: 1px solid rgba(255, 80, 80, 0.4); background: rgba(255, 80, 80, 0.08); color: #ff5a5a; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.25s ease; backdrop-filter: blur(6px); letter-spacing: 0.5px; }
-.reset-btn:hover { background: rgba(255, 80, 80, 0.18); border-color: rgba(255, 80, 80, 0.7); box-shadow: 0 0 15px rgba(255,80,80,0.2); }
-.reset-btn:active { transform: scale(0.97); }
-label { margin-top: 15px; display: block; font-size: 14px; font-weight: 500; opacity: 0.85; }
-input, textarea, select { width: 100%; padding: 14px; margin-top: 6px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.07); background: #020617; color: #fff; font-size: 14px; outline: none; transition: border-color 0.2s; box-sizing: border-box; }
-input:focus, textarea:focus, select:focus { border-color: rgba(34,211,238,0.4); }
-.cascata-container { background: #020617; border-radius: 14px; padding: 10px 15px; max-height: 300px; overflow-y: auto; margin-top: 8px; border: 1px solid rgba(255,255,255,0.06); box-shadow: inset 0 0 20px rgba(0,0,0,0.6); }
-.cat-group { margin-bottom: 15px; border-bottom: 1px solid #1e3a8a; padding-bottom: 10px; }
-.cat-group:last-child { border: none; }
-.cat-header { color: #3b82f6; font-weight: bold; margin-bottom: 10px; font-size: 14px; text-transform: uppercase; }
-.modes-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
-.mod-header { font-size: 12px; font-weight: bold; color: #94a3b8; margin-bottom: 5px; }
-.checkbox-item { display: flex; align-items: center; gap: 8px; font-size: 11px; cursor: pointer; margin-bottom: 4px; }
-.checkbox-item input { width: 14px; height: 14px; margin: 0; }
-.save-btn { width: 100%; padding: 15px; margin-top: 20px; border: none; border-radius: 12px; background: linear-gradient(135deg, #1d4ed8, #2563eb); color: #fff; font-weight: 700; font-size: 15px; cursor: pointer; letter-spacing: 0.5px; transition: all 0.25s ease; box-shadow: 0 4px 15px rgba(29,78,216,0.35); }
-.save-btn:hover { background: linear-gradient(135deg, #2563eb, #3b82f6); box-shadow: 0 6px 20px rgba(29,78,216,0.5); transform: translateY(-1px); }
-.save-btn:active { transform: scale(0.98) translateY(0); }
-.save-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-.logs { background: #000; padding: 15px; border-radius: 12px; font-family: 'Courier New', monospace; font-size: 13px; height: 200px; overflow-y: auto; line-height: 1.6; border: 1px solid rgba(255,255,255,0.05); }
-.logs::-webkit-scrollbar { width: 5px; }
-.logs::-webkit-scrollbar-track { background: #000; }
-.logs::-webkit-scrollbar-thumb { background: #1d4ed8; border-radius: 3px; }
-.log-entry { margin: 2px 0; }
-.log-info { color: #22d3ee; }
-.log-success { color: #22c55e; }
-.log-warn { color: #facc15; font-weight: 600; }
-.log-error { color: #f87171; }
-.clear-logs-btn { width: 100%; padding: 12px; border-radius: 12px; border: 1px solid rgba(255,90,90,0.35); background: rgba(255,90,90,0.1); color: #ff5a5a; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.25s ease; }
-.clear-logs-btn:hover { background: rgba(255,90,90,0.2); border-color: rgba(255,90,90,0.6); box-shadow: 0 0 12px rgba(255,90,90,0.2); }
-.clear-logs-btn:active { transform: scale(0.97); }
-.toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(80px); background: #1d4ed8; color: #fff; padding: 12px 24px; border-radius: 30px; font-size: 14px; font-weight: 600; box-shadow: 0 8px 25px rgba(0,0,0,0.5); z-index: 9999; transition: transform 0.35s cubic-bezier(0.34,1.56,0.64,1), opacity 0.35s ease; opacity: 0; white-space: nowrap; }
-.toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
-.toast.success { background: #16a34a; }
-.toast.error { background: #dc2626; }
-.toast.warn { background: #ca8a04; }
-.instancia-text { opacity: 0.6; margin-top: 10px; font-size: 13px; letter-spacing: 0.5px; }
-.controle-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0; }
-.controle-header h3 { margin: 0; }
-.bot-indicator { font-size: 12px; padding: 4px 12px; border-radius: 20px; background: rgba(34,211,238,0.12); color: #22d3ee; font-weight: 600; border: 1px solid rgba(34,211,238,0.25); }
-.error-message { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #f87171; padding: 10px 12px; border-radius: 8px; font-size: 13px; margin-top: 10px; }
-.success-message { background: rgba(34,211,238,0.1); border: 1px solid rgba(34,211,238,0.3); color: #22d3ee; padding: 10px 12px; border-radius: 8px; font-size: 13px; margin-top: 10px; }
-`;
+const styles: any = {
+  app: {
+    margin: 0,
+    padding: 0,
+    fontFamily: 'Arial, sans-serif',
+    background: '#050c1f',
+    color: '#e5e7eb',
+    minHeight: '100vh',
+    width: '100%'
+  },
+  container: {
+    maxWidth: '500px',
+    margin: '0 auto',
+    padding: '15px',
+    boxSizing: 'border-box'
+  },
+  card: {
+    background: '#0b1f47',
+    borderRadius: '12px',
+    padding: '20px',
+    marginBottom: '20px',
+    border: '1px solid rgba(255,255,255,0.06)',
+    boxSizing: 'border-box'
+  },
+  header: {
+    textAlign: 'center' as const
+  },
+  title: {
+    fontSize: '24px',
+    fontWeight: 'bold',
+    margin: '0 0 5px 0'
+  },
+  subtitle: {
+    fontSize: '12px',
+    opacity: 0.6,
+    margin: 0
+  },
+  status: {
+    display: 'flex',
+    justifyContent: 'center',
+    gap: '10px',
+    marginTop: '15px',
+    flexWrap: 'wrap' as const
+  },
+  badge: {
+    padding: '8px 16px',
+    borderRadius: '20px',
+    fontSize: '12px',
+    fontWeight: 'bold',
+    color: '#fff',
+    border: 'none'
+  },
+  botTabs: {
+    display: 'flex',
+    gap: '10px',
+    marginTop: '15px',
+    justifyContent: 'center'
+  },
+  botTab: {
+    flex: 1,
+    padding: '10px',
+    border: 'none',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    fontWeight: 'bold',
+    fontSize: '14px'
+  },
+  instanciaText: {
+    fontSize: '12px',
+    opacity: 0.6,
+    margin: '10px 0 0 0'
+  },
+  cardTitle: {
+    margin: '0 0 15px 0',
+    fontSize: '16px'
+  },
+  playButton: {
+    width: '100px',
+    height: '100px',
+    borderRadius: '50%',
+    border: '3px solid',
+    fontSize: '40px',
+    cursor: 'pointer',
+    display: 'block',
+    margin: '20px auto',
+    background: 'rgba(255,255,255,0.03)',
+    color: '#fff'
+  },
+  playLabel: {
+    textAlign: 'center' as const,
+    fontSize: '14px',
+    margin: 0
+  },
+  stat: {
+    background: '#020617',
+    padding: '15px',
+    borderRadius: '8px',
+    border: '1px solid rgba(255,255,255,0.06)'
+  },
+  statTitle: {
+    fontSize: '12px',
+    opacity: 0.6
+  },
+  statValue: {
+    fontSize: '20px',
+    fontWeight: 'bold',
+    marginTop: '5px'
+  },
+  resetBtn: {
+    width: '100%',
+    padding: '12px',
+    marginBottom: '20px',
+    borderRadius: '8px',
+    border: '1px solid rgba(255, 80, 80, 0.4)',
+    background: 'rgba(255, 80, 80, 0.08)',
+    color: '#ff5a5a',
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    fontSize: '14px'
+  },
+  label: {
+    display: 'block',
+    marginTop: '15px',
+    fontSize: '14px',
+    fontWeight: 'bold' as const,
+    opacity: 0.85
+  },
+  input: {
+    width: '100%',
+    padding: '12px',
+    marginTop: '6px',
+    borderRadius: '8px',
+    border: '1px solid rgba(255,255,255,0.07)',
+    background: '#020617',
+    color: '#fff',
+    fontSize: '14px',
+    boxSizing: 'border-box' as const,
+    fontFamily: 'Arial, sans-serif'
+  },
+  errorMsg: {
+    background: 'rgba(239,68,68,0.1)',
+    border: '1px solid rgba(239,68,68,0.3)',
+    color: '#f87171',
+    padding: '10px',
+    borderRadius: '6px',
+    fontSize: '12px',
+    marginTop: '8px'
+  },
+  cascata: {
+    background: '#020617',
+    borderRadius: '8px',
+    padding: '10px',
+    maxHeight: '300px',
+    overflowY: 'auto' as const,
+    marginTop: '8px',
+    border: '1px solid rgba(255,255,255,0.06)'
+  },
+  catGroup: {
+    marginBottom: '15px',
+    paddingBottom: '10px',
+    borderBottom: '1px solid #1e3a8a'
+  },
+  catHeader: {
+    color: '#3b82f6',
+    fontWeight: 'bold',
+    marginBottom: '10px',
+    fontSize: '13px',
+    textTransform: 'uppercase' as const
+  },
+  modesGrid: {
+    display: 'grid' as const,
+    gridTemplateColumns: '1fr 1fr',
+    gap: '10px'
+  },
+  modHeader: {
+    fontSize: '11px',
+    fontWeight: 'bold',
+    color: '#94a3b8',
+    marginBottom: '5px'
+  },
+  checkboxLabel: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    fontSize: '12px',
+    cursor: 'pointer',
+    marginBottom: '4px'
+  },
+  checkbox: {
+    width: '16px',
+    height: '16px',
+    cursor: 'pointer'
+  },
+  saveBtn: {
+    width: '100%',
+    padding: '14px',
+    marginTop: '20px',
+    border: 'none',
+    borderRadius: '8px',
+    background: '#1d4ed8',
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: '14px',
+    cursor: 'pointer'
+  },
+  successMsg: {
+    background: 'rgba(34,211,238,0.1)',
+    border: '1px solid rgba(34,211,238,0.3)',
+    color: '#22d3ee',
+    padding: '10px',
+    borderRadius: '6px',
+    fontSize: '12px',
+    marginTop: '10px'
+  },
+  logs: {
+    background: '#000',
+    padding: '12px',
+    borderRadius: '8px',
+    fontFamily: 'monospace',
+    fontSize: '12px',
+    height: '200px',
+    overflowY: 'auto' as const,
+    border: '1px solid rgba(255,255,255,0.05)'
+  },
+  toast: {
+    position: 'fixed' as const,
+    bottom: '30px',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    color: '#fff',
+    padding: '12px 24px',
+    borderRadius: '20px',
+    fontSize: '14px',
+    fontWeight: 'bold',
+    zIndex: 9999,
+    transition: 'all 0.3s ease'
+  }
+};
 
 export default App;
