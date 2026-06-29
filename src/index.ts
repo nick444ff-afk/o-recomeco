@@ -17,7 +17,7 @@ app.use(express.json());
 app.use('/api', apiRoutes);
 
 // Caminho do Frontend
-const frontendPath = path.join(process.cwd(), 'frontend', 'dist');
+const frontendPath = path.resolve(__dirname, '../../frontend/dist');
 
 // Servir arquivos estáticos
 app.use(express.static(frontendPath));
@@ -42,6 +42,12 @@ app.get('*', (req, res) => {
 async function bootstrap() {
   try {
     console.log('[BOOTSTRAP] Iniciando servidor...');
+    const fs = require('fs');
+    if (fs.existsSync(frontendPath)) {
+      console.log('[SERVER] Frontend dist encontrado:', fs.readdirSync(frontendPath));
+    } else {
+      console.error('[SERVER] Frontend dist NÃO encontrado no caminho:', frontendPath);
+    }
     await prisma.$connect();
     console.log('[DATABASE] PostgreSQL conectado.');
     app.listen(PORT, '0.0.0.0', () => {
