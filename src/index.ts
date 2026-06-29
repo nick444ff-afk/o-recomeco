@@ -16,32 +16,43 @@ app.use(express.json());
 // API Routes
 app.use('/api', apiRoutes);
 
-// Caminho do Frontend
-const frontendPath = path.resolve(__dirname, '../frontend/dist');
+// Caminho do Frontend (Configuração de Sucesso)
+const frontendPath = path.resolve(process.cwd(), 'frontend/dist');
 
-// Servir arquivos estáticos
-app.use(express.static(frontendPath, { etag: false }));
+// Servir arquivos estáticos com cache desativado
+app.use(express.static(frontendPath, { etag: false, lastModified: false }));
 
-// Servir index.html para qualquer rota (SPA Fallback)
+// Fallback para SPA (Configuração de Sucesso)
 app.get('*', (req, res) => {
-  if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'API not found' });
-  res.sendFile(path.join(frontendPath, 'index.html'), { etag: false });
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: 'API not found' });
+  }
+  
+  const indexPath = path.join(frontendPath, 'index.html');
+  res.sendFile(indexPath, { etag: false, lastModified: false }, (err) => {
+    if (err) {
+      res.status(500).send("Painel em construção... Atualize em 1 minuto.");
+    }
+  });
 });
 
 async function bootstrap() {
   try {
     console.log('[BOOTSTRAP] Iniciando servidor...');
     const fs = require('fs');
+    
+    // Log de diagnóstico
     if (fs.existsSync(frontendPath)) {
       console.log('[SERVER] Frontend dist encontrado:', fs.readdirSync(frontendPath));
     } else {
-      console.error('[SERVER] Frontend dist NÃO encontrado no caminho:', frontendPath);
+      console.error('[SERVER] Frontend dist NÃO encontrado em:', frontendPath);
     }
+
     await prisma.$connect();
-    console.log('[DATABASE] PostgreSQL conectado.');
+    console.log('[DATABASE] Conectado.');
+
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`[SERVER] Rodando na porta ${PORT}`);
-      console.log(`[SERVER] Frontend path: ${frontendPath}`);
     });
   } catch (err: any) {
     console.error('[FATAL] Erro:', err.message);
