@@ -54,6 +54,15 @@ const botInstances: Map<string, {
 const sentMessagesTracker: Map<string, Set<string>> = new Map();
 const cancelTimers: Map<string, NodeJS.Timeout> = new Map();
 
+// 1. Criar cache global
+const cachedTargets: Map<string, Map<string, {
+  channelId: string;
+  messageId: string;
+  validButtons: any[];
+  modo: string;
+  categoria: string;
+}>> = new Map();
+
 let DiscordClient: any = null;
 
 async function getDiscordClient() {
@@ -141,6 +150,7 @@ export async function stopBot(botId: string): Promise<{ success: boolean; messag
   try { instance.client.destroy(); } catch (e) {}
   botInstances.delete(botId);
   sentMessagesTracker.delete(botId);
+  cachedTargets.delete(botId); // Limpar cache ao parar o bot
   addLog(botId, { type: 'warn', message: 'Bot desligado.' });
   return { success: true, message: 'Bot desligado.' };
 }
@@ -158,39 +168,80 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
 
     const guilds = client.guilds.cache;
     
+    if (!cachedTargets.has(botId)) {
+      cachedTargets.set(botId, new Map());
+    }
+    const botCache = cachedTargets.get(botId)!;
+
     for (const [, guild] of guilds) {
       if (!instance.isRunning) break;
-      addLog(botId, { type: 'info', message: `[TRACE] Guild: ${guild.name} (${guild.id})` });
       const guildName = guild.name || 'Servidor';
       let cliquesNoServidor = 0;
+
+      // 3. Verificar se existir usar cache diretamente
+      if (botCache.has(guild.id)) {
+        addLog(botId, { type: 'info', message: `[CACHE] Usando cache do servidor ${guildName}` });
+        const cached = botCache.get(guild.id)!;
+        
+        try {
+          const channel = await client.channels.fetch(cached.channelId);
+          if (!channel) throw new Error('Canal não existe');
+
+          const msg = await (channel as any).messages.fetch(cached.messageId, { force: true });
+          if (!msg || !msg.components?.length) throw new Error('Mensagem ou botões sumiram');
+
+          if (cached.validButtons.length > 0) {
+            const randomButton = cached.validButtons[Math.floor(Math.random() * cached.validButtons.length)];
+            await msg.clickButton(randomButton.customId);
+            addLog(botId, { type: 'success', message: `[CLICK] Botão clicado via cache: "${channel.name}" em "${guildName}"` });
+            cliquesNoServidor++;
+            incrementStat(botId, 'buttonsClicked');
+            await sleep(500);
+          } else {
+            throw new Error('validButtons ficou vazio');
+          }
+        } catch (e: any) {
+          // 4. Fallback: remover cache e refazer scan
+          addLog(botId, { type: 'warn', message: `[RECACHE] Cache inválido, reescanando servidor ${guildName}: ${e.message}` });
+          botCache.delete(guild.id);
+          // O scan será feito na próxima iteração ou logo abaixo se não dermos continue
+        }
+
+        // Se o cache funcionou ou falhou e foi deletado, processamos a mensagem e pulamos para o próximo servidor
+        if (config.message && config.message.trim() !== '' && instance.isRunning) {
+          try {
+            const channel = await client.channels.fetch(cached.channelId);
+            if (channel) {
+              await (channel as any).send(config.message);
+              incrementStat(botId, 'messagesSent');
+              addLog(botId, { type: 'warn', message: `Mensagem enviada via cache em "${(channel as any).name}" de "${guildName}"` });
+            }
+          } catch (e) {}
+        }
+        continue;
+      }
+
+      // 2. Fazer scan apenas uma vez (quando não há cache)
+      addLog(botId, { type: 'info', message: `[SCAN] Guild encontrada: ${guildName}` });
       let canaisEncontrados: any[] = [];
 
+      // 5. Respeitar apenas o modo selecionado
       for (const modo of config.modes) {
-        addLog(botId, { type: 'info', message: `[TRACE] Modo: ${modo}` });
         const variations = [
           modo.toLowerCase(),
           modo.replace('v', 'x').toLowerCase()
         ];
         for (const categoria of config.categories) {
-          addLog(botId, { type: 'info', message: `[TRACE] Categoria: ${categoria}` });
-          addLog(botId, { type: 'info', message: `[TRACE] Procurando canais com: ${variations.join(', ')} | Categoria: ${categoria}` });
-          
           const matchingChannels = guild.channels.cache.filter((c: any) => {
             if (c.type !== 'GUILD_TEXT' && c.type !== 'GUILD_NEWS') return false;
             const nome = c.name.toLowerCase();
-            addLog(botId, { type: 'info', message: `[TRACE] Verificando canal: ${nome}` });
             return variations.some(v => nome.includes(v)) &&
                    nome.includes(categoria.toLowerCase());
           });
           
-          addLog(botId, { type: 'info', message: `[TRACE] Canais compatíveis encontrados: ${matchingChannels.size}` });
           for (const [, c] of matchingChannels) {
-            addLog(botId, { type: 'info', message: `[TRACE] Canal válido: ${c.name}` });
+            addLog(botId, { type: 'info', message: `[SCAN] Canal encontrado: ${c.name}` });
             canaisEncontrados.push({ channel: c, modo, categoria });
-          }
-
-          if (matchingChannels.size === 0) {
-            addLog(botId, { type: 'info', message: `[MISS] Nenhum canal encontrado para modo ${modo} e categoria ${categoria}` });
           }
         }
       }
@@ -201,32 +252,22 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
 
         try {
           const msgs = await (channel as any).messages.fetch({ limit: 10 });
-          addLog(botId, { type: 'info', message: `[TRACE] Mensagens carregadas: ${msgs.size} no canal ${channel.name}` });
+          addLog(botId, { type: 'info', message: `[SCAN] Mensagens carregadas: ${msgs.size} no canal ${channel.name}` });
           
           for (const [, msg] of msgs) {
             if (!instance.isRunning || cliquesNoServidor >= 5) break;
-            addLog(botId, { type: 'info', message: `[TRACE] Mensagem analisada: ${msg.id}` });
-            
-            if (!msg.components?.length) {
-              addLog(botId, { type: 'info', message: `[MISS] Mensagem sem componentes` });
-              continue;
-            }
+            if (!msg.components?.length) continue;
 
             const categoryData = (BUTTON_TREE as any)[categoria];
             if (categoryData && categoryData[modo.replace('v', 'x')]) {
               const optionsToClick = categoryData[modo.replace('v', 'x')];
               
               const currentMsg = await (channel as any).messages.fetch(msg.id, { force: true });
-              if (!currentMsg || !currentMsg.components?.length) {
-                addLog(botId, { type: 'info', message: `[MISS] Mensagem sem componentes após fetch` });
-                continue;
-              }
+              if (!currentMsg || !currentMsg.components?.length) continue;
 
-              addLog(botId, { type: 'info', message: `[TRACE] Total de rows: ${currentMsg.components.length}` });
               const validButtons: any[] = [];
               for (const row of currentMsg.components) {
                 for (const button of row.components) {
-                  addLog(botId, { type: 'info', message: `[TRACE] Botão encontrado -> Label="${button.label}" | CustomID="${button.customId}"` });
                   if (!button.customId) continue;
                   
                   const rawLabel = button.label || '';
@@ -239,10 +280,7 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
                   const customId = button.customId.toLowerCase();
                   const forbidden = ['sair', 'leave', 'cancelar', 'fechar', 'finalizar', 'recusar', 'confirmar'];
 
-                  if (forbidden.some(f => label.includes(f) || customId.includes(f))) {
-                    addLog(botId, { type: 'info', message: `[MISS] Botão ignorado por forbidden -> Label="${button.label}" | CustomID="${button.customId}"` });
-                    continue;
-                  }
+                  if (forbidden.some(f => label.includes(f) || customId.includes(f))) continue;
 
                   for (const option of optionsToClick) {
                     const normalizedOption = option
@@ -251,9 +289,7 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
                       .replace(/[\u0300-\u036f]/g, '')
                       .trim();
 
-                    addLog(botId, { type: 'info', message: `[TRACE] Comparando botão "${label}" com opção "${normalizedOption}"` });
                     if (label.includes(normalizedOption) || customId.includes(normalizedOption)) {
-                      addLog(botId, { type: 'info', message: `[MATCH] Botão válido -> ${button.label}` });
                       if (!validButtons.some(b => b.customId === button.customId)) {
                         validButtons.push(button);
                       }
@@ -262,38 +298,37 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
                 }
               }
 
-              addLog(botId, { type: 'info', message: `[TRACE] Total de botões válidos encontrados: ${validButtons.length}` });
-              addLog(botId, { type: 'info', message: `[TRACE] Lista de válidos: ${validButtons.map(b => b.label).join(', ') || 'Nenhum'}` });
-
               if (validButtons.length > 0) {
+                // Salvar no cache
+                botCache.set(guild.id, {
+                  channelId: channel.id,
+                  messageId: currentMsg.id,
+                  validButtons,
+                  modo,
+                  categoria
+                });
+                addLog(botId, { type: 'info', message: `[SCAN] Botões válidos cacheados para ${guildName}` });
+
                 try {
                   const randomButton = validButtons[Math.floor(Math.random() * validButtons.length)];
-                  addLog(botId, { type: 'info', message: `[CLICK] Botão sorteado -> Label="${randomButton.label}" | CustomID="${randomButton.customId}"` });
-                  
-                  try {
-                    await currentMsg.clickButton(randomButton.customId);
-                    addLog(botId, { type: 'success', message: `[SUCCESS] Clique executado com sucesso: "${channel.name}" em "${guildName}"` });
-                    cliquesNoServidor++;
-                    incrementStat(botId, 'buttonsClicked');
-                    await sleep(500);
-                  } catch (error) {
-                    addLog(botId, { type: 'error', message: `[ERROR] Falha ao clicar: ${String(error)}` });
-                  }
-                } catch (e: any) {
-                  if (!e.message.includes('Unknown Message') && !e.message.includes('Interaction failed')) {
-                    addLog(botId, { type: 'error', message: `Erro no clique (${guildName}): ${e.message}` });
-                  }
+                  await currentMsg.clickButton(randomButton.customId);
+                  addLog(botId, { type: 'success', message: `[SUCCESS] Clique inicial executado: "${channel.name}" em "${guildName}"` });
+                  cliquesNoServidor++;
+                  incrementStat(botId, 'buttonsClicked');
+                  await sleep(500);
+                } catch (error) {
+                  addLog(botId, { type: 'error', message: `[ERROR] Falha ao clicar no scan: ${String(error)}` });
+                  botCache.delete(guild.id);
                 }
-              } else {
-                addLog(botId, { type: 'info', message: `[MISS] Nenhum botão válido encontrado na mensagem ${currentMsg.id}` });
+                break; // Sai do loop de mensagens para este canal, pois já achamos e cacheamos
               }
             }
           }
-        } catch (e: any) {
-          // Silencioso para erros de fetch
-        }
+          if (botCache.has(guild.id)) break; // Se já cacheou algo neste servidor, vai para o próximo
+        } catch (e: any) {}
       }
 
+      // Enviar mensagem se não estiver no cache (primeira vez)
       if (config.message && config.message.trim() !== '' && instance.isRunning) {
         if (canaisEncontrados.length > 0) {
           const targetChannel = canaisEncontrados[0].channel;
@@ -324,11 +359,7 @@ async function handleGlobalMessageReaction(botId: string, msg: any) {
   const keywords = ['aguardando', 'partida', 'fila'];
   const channelName = channel.name.toLowerCase();
   
-  addLog(botId, { type: 'info', message: `[TRACE] Validando canal por keyword: ${channelName}` });
-  if (!keywords.some(kw => channelName.includes(kw))) {
-    addLog(botId, { type: 'info', message: `[MISS] Canal ignorado por keyword: ${channelName}` });
-    return;
-  }
+  if (!keywords.some(kw => channelName.includes(kw))) return;
 
   const guildName = channel.guild?.name || 'Servidor';
   const config = await getSettings(botId);
