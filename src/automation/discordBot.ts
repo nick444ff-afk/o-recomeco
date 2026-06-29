@@ -153,61 +153,80 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
     const config = await getSettings(botId);
     const client = instance.client;
 
-    // Otimização: Executar atualizações de status em paralelo sem bloquear o loop
     incrementStat(botId, 'executions');
     setStat(botId, 'lastExecution', new Date());
 
     const guilds = client.guilds.cache;
     
-    // Processar cada guild uma por uma para garantir a ordem
     for (const [, guild] of guilds) {
       if (!instance.isRunning) break;
+      addLog(botId, { type: 'info', message: `[TRACE] Guild: ${guild.name} (${guild.id})` });
       const guildName = guild.name || 'Servidor';
       let cliquesNoServidor = 0;
       let canaisEncontrados: any[] = [];
 
-      // 1. Escanear todos os canais que batem com a configuração
       for (const modo of config.modes) {
+        addLog(botId, { type: 'info', message: `[TRACE] Modo: ${modo}` });
         const variations = [
           modo.toLowerCase(),
           modo.replace('v', 'x').toLowerCase()
         ];
         for (const categoria of config.categories) {
+          addLog(botId, { type: 'info', message: `[TRACE] Categoria: ${categoria}` });
+          addLog(botId, { type: 'info', message: `[TRACE] Procurando canais com: ${variations.join(', ')} | Categoria: ${categoria}` });
+          
           const matchingChannels = guild.channels.cache.filter((c: any) => {
             if (c.type !== 'GUILD_TEXT' && c.type !== 'GUILD_NEWS') return false;
             const nome = c.name.toLowerCase();
+            addLog(botId, { type: 'info', message: `[TRACE] Verificando canal: ${nome}` });
             return variations.some(v => nome.includes(v)) &&
                    nome.includes(categoria.toLowerCase());
           });
           
-          for (const [, channel] of matchingChannels) {
-            canaisEncontrados.push({ channel, modo, categoria });
+          addLog(botId, { type: 'info', message: `[TRACE] Canais compatíveis encontrados: ${matchingChannels.size}` });
+          for (const [, c] of matchingChannels) {
+            addLog(botId, { type: 'info', message: `[TRACE] Canal válido: ${c.name}` });
+            canaisEncontrados.push({ channel: c, modo, categoria });
+          }
+
+          if (matchingChannels.size === 0) {
+            addLog(botId, { type: 'info', message: `[MISS] Nenhum canal encontrado para modo ${modo} e categoria ${categoria}` });
           }
         }
       }
 
-      // 2. Dar até 5 cliques, um por um, nos canais encontrados
       for (const item of canaisEncontrados) {
         if (!instance.isRunning || cliquesNoServidor >= 5) break;
         const { channel, modo, categoria } = item;
 
         try {
           const msgs = await (channel as any).messages.fetch({ limit: 10 });
+          addLog(botId, { type: 'info', message: `[TRACE] Mensagens carregadas: ${msgs.size} no canal ${channel.name}` });
+          
           for (const [, msg] of msgs) {
             if (!instance.isRunning || cliquesNoServidor >= 5) break;
-            if (!msg.components?.length) continue;
+            addLog(botId, { type: 'info', message: `[TRACE] Mensagem analisada: ${msg.id}` });
+            
+            if (!msg.components?.length) {
+              addLog(botId, { type: 'info', message: `[MISS] Mensagem sem componentes` });
+              continue;
+            }
 
             const categoryData = (BUTTON_TREE as any)[categoria];
             if (categoryData && categoryData[modo.replace('v', 'x')]) {
               const optionsToClick = categoryData[modo.replace('v', 'x')];
               
-              // Fetch atualizado para garantir componentes
               const currentMsg = await (channel as any).messages.fetch(msg.id, { force: true });
-              if (!currentMsg || !currentMsg.components?.length) continue;
+              if (!currentMsg || !currentMsg.components?.length) {
+                addLog(botId, { type: 'info', message: `[MISS] Mensagem sem componentes após fetch` });
+                continue;
+              }
 
+              addLog(botId, { type: 'info', message: `[TRACE] Total de rows: ${currentMsg.components.length}` });
               const validButtons: any[] = [];
               for (const row of currentMsg.components) {
                 for (const button of row.components) {
+                  addLog(botId, { type: 'info', message: `[TRACE] Botão encontrado -> Label="${button.label}" | CustomID="${button.customId}"` });
                   if (!button.customId) continue;
                   
                   const rawLabel = button.label || '';
@@ -220,7 +239,10 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
                   const customId = button.customId.toLowerCase();
                   const forbidden = ['sair', 'leave', 'cancelar', 'fechar', 'finalizar', 'recusar', 'confirmar'];
 
-                  if (forbidden.some(f => label.includes(f) || customId.includes(f))) continue;
+                  if (forbidden.some(f => label.includes(f) || customId.includes(f))) {
+                    addLog(botId, { type: 'info', message: `[MISS] Botão ignorado por forbidden -> Label="${button.label}" | CustomID="${button.customId}"` });
+                    continue;
+                  }
 
                   for (const option of optionsToClick) {
                     const normalizedOption = option
@@ -229,7 +251,9 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
                       .replace(/[\u0300-\u036f]/g, '')
                       .trim();
 
+                    addLog(botId, { type: 'info', message: `[TRACE] Comparando botão "${label}" com opção "${normalizedOption}"` });
                     if (label.includes(normalizedOption) || customId.includes(normalizedOption)) {
+                      addLog(botId, { type: 'info', message: `[MATCH] Botão válido -> ${button.label}` });
                       if (!validButtons.some(b => b.customId === button.customId)) {
                         validButtons.push(button);
                       }
@@ -238,19 +262,30 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
                 }
               }
 
+              addLog(botId, { type: 'info', message: `[TRACE] Total de botões válidos encontrados: ${validButtons.length}` });
+              addLog(botId, { type: 'info', message: `[TRACE] Lista de válidos: ${validButtons.map(b => b.label).join(', ') || 'Nenhum'}` });
+
               if (validButtons.length > 0) {
                 try {
                   const randomButton = validButtons[Math.floor(Math.random() * validButtons.length)];
-                  await currentMsg.clickButton(randomButton.customId);
-                  cliquesNoServidor++;
-                  incrementStat(botId, 'buttonsClicked');
-                  addLog(botId, { type: 'success', message: `Clique: "${channel.name}" em "${guildName}"` });
-                  await sleep(500); // Delay entre cliques para estabilidade
+                  addLog(botId, { type: 'info', message: `[CLICK] Botão sorteado -> Label="${randomButton.label}" | CustomID="${randomButton.customId}"` });
+                  
+                  try {
+                    await currentMsg.clickButton(randomButton.customId);
+                    addLog(botId, { type: 'success', message: `[SUCCESS] Clique executado com sucesso: "${channel.name}" em "${guildName}"` });
+                    cliquesNoServidor++;
+                    incrementStat(botId, 'buttonsClicked');
+                    await sleep(500);
+                  } catch (error) {
+                    addLog(botId, { type: 'error', message: `[ERROR] Falha ao clicar: ${String(error)}` });
+                  }
                 } catch (e: any) {
                   if (!e.message.includes('Unknown Message') && !e.message.includes('Interaction failed')) {
                     addLog(botId, { type: 'error', message: `Erro no clique (${guildName}): ${e.message}` });
                   }
                 }
+              } else {
+                addLog(botId, { type: 'info', message: `[MISS] Nenhum botão válido encontrado na mensagem ${currentMsg.id}` });
               }
             }
           }
@@ -259,9 +294,7 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
         }
       }
 
-      // 3. Enviar a mensagem se configurada (após os cliques ou se não houver cliques)
       if (config.message && config.message.trim() !== '' && instance.isRunning) {
-        // Enviar no primeiro canal válido encontrado para este servidor
         if (canaisEncontrados.length > 0) {
           const targetChannel = canaisEncontrados[0].channel;
           try {
@@ -271,8 +304,6 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
           } catch (e) {}
         }
       }
-      
-      // Otimização: Assim que terminar o servidor (por cliques ou por esgotar canais), o loop já passa para o próximo automaticamente
     }
 
   } catch (err: any) {
@@ -281,7 +312,6 @@ async function runAutomationLoop(botId: string, initialConfig: BotConfig): Promi
 
   if (instance && instance.isRunning) {
     const config = await getSettings(botId);
-    // Otimização: Reduzir o intervalo mínimo para 2 segundos se não configurado, garantindo tempo real
     const intervalMs = Math.max((config.interval || 2) * 1000, 2000);
     instance.loopTimeout = setTimeout(() => runAutomationLoop(botId, config), intervalMs);
   }
@@ -291,11 +321,14 @@ async function handleGlobalMessageReaction(botId: string, msg: any) {
   const channel = msg.channel;
   if (!channel || !channel.name) return;
 
-  // Onipresente: Qualquer canal que contenha as palavras-chave deve disparar
   const keywords = ['aguardando', 'partida', 'fila'];
   const channelName = channel.name.toLowerCase();
   
-  if (!keywords.some(kw => channelName.includes(kw))) return;
+  addLog(botId, { type: 'info', message: `[TRACE] Validando canal por keyword: ${channelName}` });
+  if (!keywords.some(kw => channelName.includes(kw))) {
+    addLog(botId, { type: 'info', message: `[MISS] Canal ignorado por keyword: ${channelName}` });
+    return;
+  }
 
   const guildName = channel.guild?.name || 'Servidor';
   const config = await getSettings(botId);
@@ -304,7 +337,6 @@ async function handleGlobalMessageReaction(botId: string, msg: any) {
     if (!sentMessagesTracker.has(botId)) sentMessagesTracker.set(botId, new Set());
     const sentSet = sentMessagesTracker.get(botId)!;
 
-    // Enviar sempre que aparecer, mas evitar spam infinito no mesmo canal em segundos
     if (!sentSet.has(channel.id)) {
       try {
         channel.send(config.message).then(() => {
@@ -312,7 +344,6 @@ async function handleGlobalMessageReaction(botId: string, msg: any) {
           incrementStat(botId, 'messagesSent');
           addLog(botId, { type: 'warn', message: `[EVENTO] Mensagem enviada em "${channel.name}" de "${guildName}"` });
           
-          // Limpar do tracker após 1 minuto para permitir re-envio se o canal for recriado/reutilizado
           setTimeout(() => sentSet.delete(channel.id), 60000);
         }).catch(() => {});
 
@@ -342,7 +373,6 @@ async function handleGlobalMessageReaction(botId: string, msg: any) {
     }
   }
 
-  // Clicar em botões se houver, mesmo em eventos globais
   if (msg.components?.length) {
     for (const row of msg.components) {
       for (const button of row.components) {
